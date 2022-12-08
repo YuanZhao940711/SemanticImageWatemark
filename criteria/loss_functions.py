@@ -8,7 +8,7 @@ from criteria.lpips.lpips import LPIPS
 
 
 class GANLoss(nn.Module):
-    def __init__(self, gan_mode='hinge', target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor, opt=None, adv_weight=0.0):
+    def __init__(self, gan_mode='hinge', target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor, opt=None):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -18,7 +18,7 @@ class GANLoss(nn.Module):
         self.Tensor = tensor
         self.gan_mode = gan_mode
         self.opt = opt
-        self.adv_weight = adv_weight
+
         if gan_mode == 'ls':
             pass
         elif gan_mode == 'original':
@@ -69,29 +69,29 @@ class GANLoss(nn.Module):
                 bs = 1 if len(loss_tensor.size()) == 0 else loss_tensor.size(0)
                 new_loss = torch.mean(loss_tensor.view(bs, -1), dim=1)
                 loss += new_loss
-            return (loss / len(input)) * self.adv_weight
+            return loss / len(input)
         else:
-            return (self.loss(input, target_is_real)) * self.adv_weight
+            return self.loss(input, target_is_real)
 
 
 class AttLoss(nn.Module):
-    def __init__(self, att_weight):
+    def __init__(self):
         super(AttLoss, self).__init__()
-        self.att_weight = att_weight
         self.criterion = nn.MSELoss()
+
     def forward(self, att_input, att_output):
         assert len(att_input) == len(att_output), 'attributes maps are not equal'
         att_loss = 0
         for i in range(len(att_input)):
             att_loss += self.criterion(att_input[i], att_output[i])
         att_loss *= 0.5
-        return att_loss * self.att_weight
+        return att_loss
 
 
 class IdLoss(nn.Module):
-    def __init__(self, id_weight, loss_mode):
+    def __init__(self, loss_mode):
         super(IdLoss, self).__init__()
-        self.id_weight = id_weight
+
         if loss_mode == 'MSE':
             self.criterion = nn.MSELoss()
             self.mode = loss_mode
@@ -102,6 +102,7 @@ class IdLoss(nn.Module):
             self.mode = loss_mode
         else:
             raise ValueError('Unexpected Loss Mode {}'.format(loss_mode))
+
     def forward(self, id_input, id_output):
         if self.mode == 'MSE':
             id_loss = self.criterion(id_input, id_output)
@@ -110,13 +111,13 @@ class IdLoss(nn.Module):
             id_loss = self.criterion(id_input, id_output)
         elif self.mode == 'Cos':
             id_loss = torch.mean(1 - torch.cosine_similarity(id_input, id_output, dim=1))
-        return id_loss * self.id_weight
+        return id_loss
 
 
 class RecLoss(nn.Module):
-    def __init__(self, rec_weight, loss_mode, device):
+    def __init__(self, loss_mode, device):
         super(RecLoss, self).__init__()
-        self.rec_weight = rec_weight
+
         self.mode = loss_mode
         if self.mode == 'l2':
             self.criterion = nn.MSELoss().to(device)
@@ -129,13 +130,13 @@ class RecLoss(nn.Module):
             rec_loss = 0.5 * self.criterion(img_input, img_output)
         elif self.mode == 'lpips':
             rec_loss = self.criterion(img_input, img_output)
-        return rec_loss * self.rec_weight
+        return rec_loss
 
 
 class WatLoss(nn.Module):
-    def __init__(self, wat_weight, loss_mode):
+    def __init__(self, loss_mode):
         super(WatLoss, self).__init__()
-        self.wat_weight = wat_weight
+
         if loss_mode == 'MSE':
             self.criterion = nn.MSELoss()
             self.mode = loss_mode
@@ -156,6 +157,6 @@ class WatLoss(nn.Module):
             wat_loss = self.criterion(wat_res, wat_ori)
         elif self.mode == 'Cos':
             wat_loss = torch.mean(1 - torch.cosine_similarity(wat_res, wat_ori, dim=1))
-        return wat_loss * self.wat_weight
+        return wat_loss
 
 

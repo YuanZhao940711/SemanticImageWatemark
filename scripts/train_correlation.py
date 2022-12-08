@@ -1,81 +1,113 @@
-from logging.config import valid_ident
 import os
 import sys
 import time
-import json
-import pprint
+import numpy as np
 
 sys.path.append(".")
 sys.path.append("..")
 
-import numpy as np
-from scipy.signal import max_len_seq 
-
-import matplotlib.pyplot as plt
-
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import torchvision.transforms as transforms
 from torch.utils.tensorboard import SummaryWriter
 
-from options.train_options import TrainOptions
+from options.options import TrainOptions
 
-from network.MultiscaleDiscriminator import *
 from network.AAD import AADGenerator
 from network.MAE import MLAttrEncoder
+from network.Fuser import Fuser
+from network.Separator import Separator
+from network.Encoder import Encoder
+from network.Decoder import Decoder
+from network.MultiscaleDiscriminator import *
 
 from criteria import loss_functions
-from face_modules.model import Backbone, l2_norm
+from face_modules.model import Backbone
 
-from utils import common
-from utils.dataset import TrainDataset
+from utils.dataset import ImageDataset
+from utils.common import visualize_results, print_log, alignment, l2_norm, AverageMeter
+
 
 
 
 class Train:
-    def __init__(self, opts):
-        self.opts = opts
+    def __init__(self, args):
+        self.args = args
 
         torch.backends.deterministic = True
-        SEED = self.opts.seed
+        SEED = self.args.seed
         np.random.seed(SEED)
         torch.manual_seed(SEED)
         torch.cuda.manual_seed_all(SEED)
 
-        self.opts.device = torch.device('cuda:0' if torch.cuda.is_available else 'cpu')
-        print("[*]Running on device: {}".format(self.opts.device))
+        self.args.device = torch.device('cuda:0' if torch.cuda.is_available else 'cpu')
+        print_log('[*]Running on device: {}'.format(self.args.device), self.args.logPath)
 
-        ### Initialize networks and load pretrained models ###
-        self.aadblocks = AADGenerator(c_id=512).to(self.opts.device)
+        ##### Initialize networks and load pretrained models ######
+        # AAD
+        self.aadblocks = AADGenerator(c_id=512).to(self.args.device)
         try:
-            self.aadblocks.load_state_dict(torch.load(os.path.join(self.opts.aadblocks_dir, 'AAD_best.pth'), map_location=self.opts.device), strict=True)
+            self.aadblocks.load_state_dict(torch.load(os.path.join(self.args.aadblocks_dir, 'AAD_best.pth'), map_location=self.args.device), strict=True)
         except:
-            print("[*]Training AAD Blocks from scratch")
+            print_log("[*]Training AAD Blocks from scratch", self.args.logPath)
         
-        self.attencoder = MLAttrEncoder().to(self.opts.device)
+        # ATT
+        self.attencoder = MLAttrEncoder().to(self.args.device)
         try:
-            self.attencoder.load_state_dict(torch.load(os.path.join(self.opts.attencoder_dir, 'Att_best.pth'), map_location=self.opts.device), strict=True)
+            self.attencoder.load_state_dict(torch.load(os.path.join(self.args.attencoder_dir, 'Att_best.pth'), map_location=self.args.device), strict=True)
         except:
-            print("[*]Training Attributes Encoder from scratch")
+            print_log("[*]Training Attributes Encoder from scratch", self.args.logPath)
 
-        self.discriminator = MultiscaleDiscriminator(input_nc=3, n_layers=6, norm_layer=torch.nn.InstanceNorm2d).to(self.opts.device)
+        # Dis
+        self.discriminator = MultiscaleDiscriminator(input_nc=3, n_layers=6, norm_layer=torch.nn.InstanceNorm2d).to(self.args.device)
         try:
-            self.discriminator.load_state_dict(torch.load(os.path.join(self.opts.discriminator_dir, 'Dis_best.pth'), map_location=self.opts.device), strict=True)
+            self.discriminator.load_state_dict(torch.load(os.path.join(self.args.discriminator_dir, 'Dis_best.pth'), map_location=self.args.device), strict=True)
         except:
-            print("[*]Training Discriminator from scratch")
+            print_log("[*]Training Discriminator from scratch", self.args.logPath)
 
-        print("[*]Loading Face Recognition Model {} from {}".format(self.opts.facenet_mode, self.opts.facenet_dir))
-        if self.opts.facenet_mode == 'arcface':
-            self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se').to(self.opts.device)
-            self.facenet.load_state_dict(torch.load(os.path.join(self.opts.facenet_dir, 'model_ir_se50.pth'), map_location=self.opts.device), strict=True)
-        elif self.opts.facenet_mode == 'circularface':
-            self.facenet = Backbone(input_size=112, num_layers=100, drop_ratio=0.4, mode='ir', affine=False).to(self.opts.device)
-            self.facenet.load_state_dict(torch.load(os.path.join(self.opts.facenet_dir, 'CurricularFace_Backbone.pth'), map_location=self.opts.device), strict=True)
+        # FaceNet
+        print_log("[*]Loading Face Recognition Model {} from {}".format(self.args.facenet_mode, self.args.facenet_dir), self.args.logPath)
+        if self.args.facenet_mode == 'arcface':
+            self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se').to(self.args.device)
+            self.facenet.load_state_dict(torch.load(os.path.join(self.args.facenet_dir, 'model_ir_se50.pth'), map_location=self.args.device), strict=True)
+        elif self.args.facenet_mode == 'circularface':
+            self.facenet = Backbone(input_size=112, num_layers=100, drop_ratio=0.4, mode='ir', affine=False).to(self.args.device)
+            self.facenet.load_state_dict(torch.load(os.path.join(self.args.facenet_dir, 'CurricularFace_Backbone.pth'), map_location=self.args.device), strict=True)
         else:
             raise ValueError("Invalid Face Recognition Model. Must be one of [arcface, CurricularFace]")
+        
+        # Fuser
+        self.fuser = Fuser(latent_dim=self.args.latent_dim).to(self.args.device)
+        try:
+            self.fuser.load_state_dict(torch.load(os.path.join(self.args.fuser_dir, 'fuser_best.pth'), map_location=self.args.device), strict=True)
+        except:
+            print_log("[*]Training Fuser from scratch", self.args.logPath)
 
-        ### Calculate networks parameters and FLOPs ###
-        dummpy_input = torch.randn(1, 3, 256, 256).to(self.opts.device)
+        # Separator
+        self.separator = Separator(latent_dim=self.args.latent_dim).to(self.args.device)
+        try:
+            self.separator.load_state_dict(torch.load(os.path.join(self.args.separator_dir, 'separator_best.pth'), map_location=self.args.device), strict=True)
+        except:
+            print_log("[*]Training Separator from scratch", self.args.logPath)
+        
+        # Encoder
+        self.encoder = Encoder(in_channels=3, latent_dim=self.args.latent_dim).to(self.args.device)
+        try:
+            self.encoder.load_state_dict(torch.load(os.path.join(self.args.encoder_dir, 'encoder_best.pth'), map_location=self.args.device), strict=True)
+        except:
+            print_log("[*]Training Encoder from scratch", self.args.logPath)
+
+        # Decoder
+        self.decoder = Decoder(in_channels=3, latent_dim=self.args.latent_dim).to(self.args.device)
+        try:
+            self.decoder.load_state_dict(torch.load(os.path.join(self.args.decoder_dir, 'decoder_best.pth'), map_location=self.args.device), strict=True)
+        except:
+            print_log("[*]Training Decoder from scratch", self.args.logPath)
+
+        ###### Calculate networks parameters and FLOPs ######
+        """
+        dummpy_input = torch.randn(1, 3, 256, 256).to(self.args.device)
         flops, params = common.count_models(test_model=self.facenet, dummy_input=common.alignment(dummpy_input))
         print('[*]FaceNet has {} parameters and {} FLOPs for each sample'.format(params,flops))
         id_dummpy = self.facenet(common.alignment(dummpy_input))
@@ -87,360 +119,386 @@ class Train:
 
         flops, params = common.count_models(test_model=self.aadblocks, dummy_input=(att_dummpy, id_dummpy_norm))
         print('[*]AADGenerator has {} parameters and {} FLOPs for each sample'.format(params,flops))
+        """
 
-        ### Initialize optimizers ###
-        self.opt_aad = optim.Adam(self.aadblocks.parameters(), lr=self.opts.lr_aad, betas=(0, 0.999))
-        self.opt_att = optim.Adam(self.attencoder.parameters(), lr=self.opts.lr_att, betas=(0, 0.999))
-        self.opt_dis = optim.Adam(self.discriminator.parameters(), lr=self.opts.lr_dis, betas=(0, 0.999))
-
-        ### Initialize result directories and folders ###
-        self.trainpics_dir = os.path.join(self.opts.output_dir, 'TrainPics')
-        os.makedirs(self.trainpics_dir, exist_ok=True)
-        self.valpics_dir = os.path.join(self.opts.output_dir, 'ValidationPics')
-        os.makedirs(self.valpics_dir, exist_ok=True)
-        self.checkpoints_dir = os.path.join(self.opts.output_dir, 'CheckPoints')
-        os.makedirs(self.checkpoints_dir, exist_ok=True)
-        self.best_checkpoints_dir = os.path.join(self.opts.output_dir, 'BestResult')
-        os.makedirs(self.best_checkpoints_dir, exist_ok=True)
-        self.log_dir = os.path.join(self.opts.output_dir, 'Logs')
-        os.makedirs(self.log_dir, exist_ok=True)
+        ##### Initialize optimizers #####
+        self.opt_aad = optim.Adam(self.aadblocks.parameters(), lr=self.args.lr_aad, betas=(0, 0.999))
+        self.opt_att = optim.Adam(self.attencoder.parameters(), lr=self.args.lr_att, betas=(0, 0.999))
+        self.opt_dis = optim.Adam(self.discriminator.parameters(), lr=self.args.lr_dis, betas=(0, 0.999))
+        self.opt_fuser = optim.Adam(self.fuser.parameters(), lr=self.args.lr_fuser, betas=(0, 0.999))
+        self.opt_separator = optim.Adam(self.separator.parameters(), lr=self.args.lr_separator, betas=(0, 0.999))
+        self.opt_encoder = optim.Adam(self.encoder.parameters(), lr=self.args.lr_encoder, betas=(0, 0.999))
+        self.opt_decoder = optim.Adam(self.decoder.parameters(), lr=self.args.lr_decoder, betas=(0, 0.999))
 
         ### Initialize loss functions ###
-        self.adv_loss = loss_functions.GANLoss(adv_weight=self.opts.adv_weight).to(self.opts.device)
-        self.att_loss = loss_functions.AttLoss(self.opts.att_weight).to(self.opts.device)
-        self.id_loss = loss_functions.IdLoss(self.opts.id_weight, self.opts.idloss_mode).to(self.opts.device)
-        self.rec_loss = loss_functions.RecLoss(self.opts.rec_weight, self.opts.recloss_mode, self.opts.device)
+        self.adv_loss = loss_functions.GANLoss(adv_weight=self.args.adv_weight).to(self.args.device)
+        self.att_loss = loss_functions.AttLoss().to(self.args.device)
+        self.id_loss = loss_functions.IdLoss(self.args.idloss_mode).to(self.args.device)
+        self.rec_loss = loss_functions.RecLoss(self.args.recloss_mode, self.args.device)
 
-        ### Initialize data loaders ###
-        train_dataset = TrainDataset(root=self.opts.trainimg_dir)
-        val_dataset = TrainDataset(root=self.opts.valimg_dir)
+        ##### Initialize data loaders ##### 
+        train_cover_transforms = transforms.Compose([
+            #transforms.RandomCrop(size=(512, 512)),
+            transforms.Resize([self.args.image_size, self.args.image_size]),
+            transforms.ToTensor()
+        ])
+        val_cover_transforms = transforms.Compose([
+            #transforms.RandomCrop(size=(512, 512)),
+            transforms.Resize([self.args.image_size, self.args.image_size]),
+            transforms.ToTensor()
+        ])
+        secret_transforms = transforms.Compose([
+            transforms.Resize([self.args.image_size, self.args.image_size]),
+            transforms.ToTensor()
+        ])
+
+        train_cover_dataset = ImageDataset(root=self.args.train_cover_dir, transforms=train_cover_transforms)
+        val_cover_dataset = ImageDataset(root=self.args.val_cover_dir, transforms=val_cover_transforms)
+        secret_dataset = ImageDataset(root=self.args.secret_dir, transforms=secret_transforms)
         
-        self.train_loader = DataLoader(
-            train_dataset,
-            batch_size=self.opts.batch_size,
+        self.train_cover_loader = DataLoader(
+            train_cover_dataset,
+            batch_size=self.args.train_bs,
             shuffle=True,
-            num_workers=int(self.opts.num_workers),
+            num_workers=int(self.args.num_workers),
             drop_last=True
         )
-        self.val_loader = DataLoader(
-            val_dataset,
-            batch_size=self.opts.batch_size,
+        self.val_cover_loader = DataLoader(
+            val_cover_dataset,
+            batch_size=self.args.train_bs,
             shuffle=True,
-            num_workers=int(self.opts.num_workers),
+            num_workers=int(self.args.num_workers),
+            drop_last=True
+        )
+        self.secret_loader = DataLoader(
+            secret_dataset,
+            batch_size=self.args.secret_bs,
+            shuffle=True,
+            num_workers=int(self.args.num_workers),
             drop_last=True
         )
 
         ### Initialize logger ###
-        self.logger = SummaryWriter(log_dir=self.log_dir)
-
+        self.logger = SummaryWriter(log_dir=self.args.tensorboardlogs_dir)
         self.best_loss = None
 
 
-    def train_dis(self, img_org):
-        self.facenet.eval()
-        self.aadblocks.eval()
-        self.attencoder.eval()
-
-        self.discriminator.train()
-
-        loss_dis = 0.0
-
-        id_org = self.facenet(common.alignment(img_org))
-        id_org_norm = l2_norm(id_org) 
-
-        id_input = id_org_norm * self.opts.idvec_weight + self.seq_weighted
-
-        att_org = self.attencoder(Xt=img_org)
-
-        img_rec = self.aadblocks(inputs=(att_org, id_input))
+    def forward_pass(self, cover, secret):
+        cover_att = self.attencoder(Xt=cover)
         
-        dis_real = self.discriminator(img_org)
-        dis_fake = self.discriminator(img_rec)
+        cover_id = self.facenet(alignment(cover))
+        cover_id_norm = l2_norm(cover_id) 
 
-        self.opt_dis.zero_grad()
+        secret_feature = self.encoder(secret)
 
-        loss_dis = self.cal_dis_loss(dis_real, dis_fake)
+        fused_feature = self.fuser(cover_id_norm, secret_feature)
 
-        loss_dis.backward()
-        self.opt_dis.step()
+        container = self.aadblocks(inputs=(cover_att, fused_feature))
 
-        return loss_dis
+        container_id = self.facenet(alignment(container))
+        container_id_norm = l2_norm(container_id)
 
+        container_att = self.attencoder(Xt=container)
 
-    def train_gen(self, img_org):
-        self.facenet.eval()
-        self.discriminator.eval()
+        secret_feature_rec = self.separator(container_id_norm)
 
-        self.aadblocks.train()
-        self.attencoder.train()
-
-        vis_dict = {}
-        loss_gen = 0.0
+        secret_rec = self.decoder(secret_feature_rec)
         
-        id_org = self.facenet(common.alignment(img_org))
-        id_org_norm = l2_norm(id_org)
-
-        id_input = id_org_norm * self.opts.idvec_weight + self.seq_weighted
-
-        att_org = self.attencoder(Xt=img_org)
-
-        img_rec = self.aadblocks(inputs=(att_org, id_input))
-
-        id_rec = self.facenet(common.alignment(img_rec))
-        id_rec_norm = l2_norm(id_rec)
-
-        att_rec = self.attencoder(Xt=img_rec)
-
-        dis_rec = self.discriminator(img_rec)
-
-        self.opt_att.zero_grad()
-        self.opt_aad.zero_grad()
-
-        loss_gen, loss_gen_dict = self.cal_gen_loss(dis_rec, img_org, img_rec, id_input, id_rec_norm, att_org, att_rec)
-
-        loss_gen.backward()
-        self.opt_att.step()
-        self.opt_aad.step()
-
-        vis_dict = {
-            'img_org': img_org,
-            'img_rec': img_rec,
-            'id_org': id_org_norm,
-            'id_input': id_input,
-            'id_rec': id_rec_norm,
-            'seq': self.seq,
-            'seq_len': self.seq_len,
-            'seq_weighted': self.seq_weighted
+        ##### Collect results ##### 
+        data_dict = {
+            'cover': cover,
+            'container': container,
+            'secret': secret,
+            'secret_rec': secret_rec,
+            'cover_id': cover_id,
+            'secret_feature': secret_feature,
+            'fused_feature': fused_feature,
+            'container_id': container_id_norm,
+            'secret_feature_rec': secret_feature_rec,
+            'cover_att': cover_att,
+            'container_att': container_att,
         }
-        return vis_dict, loss_gen_dict
+
+        return data_dict
 
 
-    def training(self, epoch, dataloader):
-        for train_iter, img_org in enumerate(dataloader):
-            randint = np.random.randint(low=0, high=2, size=9)
-            random_state = np.ones(shape=9) if sum(randint) == 0 else randint
-                
-            seq = max_len_seq(nbits=9, state=random_state)[0]*2.0 - 1.0
-            seq = np.insert(seq, -1, 0)
-            self.seq = torch.from_numpy(seq).float().to(self.opts.device)
-            self.seq_weighted = self.seq * self.opts.seq_weight
-            self.seq_len = len(self.seq)
+    def training(self, epoch, cover_loader, secret_loader):
+        batch_time = AverageMeter()
+        Dis_loss = AverageMeter()
+        Adv_loss = AverageMeter()
+        Att_loss = AverageMeter()
+        Id_loss = AverageMeter()
+        Rec_con_loss = AverageMeter()
+        Rec_sec_loss = AverageMeter()
+        Feat_loss = AverageMeter()
+        Gen_loss = AverageMeter()
+        Sumlosses = AverageMeter()
 
-            img_org = img_org.to(self.opts.device)
+        start_time = time.time()
 
-            ### Training Discriminator ###
-            loss_dis = self.train_dis(img_org)
+        secret_iterator = iter(secret_loader)
+        for train_iter, cover_batch in enumerate(cover_loader):
+            try:
+                secret_batch = next(secret_iterator)
+            except StopIteration:
+                secret_iterator = iter(secret_loader)
+                secret_batch = next(secret_iterator)
 
-            ### Training Generator ###
-            vis_dict, loss_train_dict = self.train_gen(img_org)
+            cover_batch = cover_batch.to(self.args.device)
+            secret_batch = secret_batch.to(self.args.device)
 
-            loss_train_dict['Total_DisLoss'] = float(loss_dis)
+            ##### Training Discriminator #####
+            self.facenet.eval()
+            self.aadblocks.eval()
+            self.attencoder.eval()
+            self.fuser.eval()
+            self.separator.eval()
+            self.encoder.eval()
+            self.decoder.eval()
 
-            if (train_iter+1) % self.opts.board_interval == 0:
-                self.print_metrics(loss_train_dict, train_iter+1, epoch, prefix='train')
-                self.log_metrics(loss_train_dict, self.train_steps+1, prefix='train')
+            self.discriminator.train()
 
-            if (train_iter+1) % self.opts.image_interval == 0:
-                fig = common.visualize_image(cor_dict=vis_dict, dis_num=self.opts.display_num)
-                imgoutput_dir = os.path.join(self.trainpics_dir, 'epoch_{:05d}_iteration_{:05d}_steps_{:05d}.png'.format(epoch, train_iter+1, self.train_steps+1))
-                fig.savefig(imgoutput_dir)
-                plt.close(fig)
+            dis_data_dict = self.forward_pass(cover_batch, secret_batch)
 
-            self.train_steps += 1
+            # Calculate discriminator losses
+            dis_real = self.discriminator(dis_data_dict['cover'])
+            dis_fake = self.discriminator(dis_data_dict['container'])
+
+            loss_real = self.adv_loss(dis_real, target_is_real=True)
+            loss_fake = self.adv_loss(dis_fake, target_is_real=False)
+            sum_dis_loss = (loss_real + loss_fake)/2
+
+            self.opt_dis.zero_grad()
+
+            sum_dis_loss.backward()
+
+            self.opt_dis.step()
+
+            ##### Training Generator #####
+            self.facenet.eval()
+            self.discriminator.eval()
+
+            self.aadblocks.train()
+            self.attencoder.train()
+            self.fuser.eval()
+            self.separator.eval()
+            self.encoder.eval()
+            self.decoder.eval()
+
+            gen_data_dict = self.forward_pass(cover_batch, secret_batch)
+
+            # Calculate Generator losses
+            dis_container = self.discriminator(gen_data_dict['container'])
+            loss_adv = self.adv_loss(dis_container, target_is_real=True)
+
+            loss_att = self.att_loss(gen_data_dict['container_att'], gen_data_dict['cover_att'])
+            loss_id = self.id_loss(gen_data_dict['fused_feature'], gen_data_dict['container_id_norm'])
+            loss_con_rec = self.rec_loss(gen_data_dict['container'], gen_data_dict['cover'])
+            loss_sec_rec = self.rec_loss(gen_data_dict['secret_rec'], gen_data_dict['secret'])
+            loss_feat = self.feat_loss(gen_data_dict['secret_feature_rec'], gen_data_dict['secret_feature'])
+
+            sum_gen_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*(loss_con_rec + loss_sec_rec) + self.args.feat_lambda*loss_feat
+
+            self.opt_aad.zero_grad()
+            self.opt_att.zero_grad()
+            self.opt_fuser.zero_grad()
+            self.opt_separator.zero_grad()
+            self.opt_encoder.zero_grad()
+            self.opt_decoder.zero_grad()
             
-            if train_iter == self.opts.max_train_iters-1:
+            sum_gen_loss.backward()
+
+            self.opt_aad.step()
+            self.opt_att.step()
+            self.opt_fuser.step()
+            self.opt_separator.step()
+            self.opt_encoder.step()
+            self.opt_decoder.step()
+
+            ##### Log losses and computation time #####
+            Dis_loss.update(sum_dis_loss.data, self.args.train_bs)
+
+            Adv_loss.update(loss_adv.data, self.args.train_bs)
+            Att_loss.update(loss_att.data, self.args.train_bs)
+            Id_loss.update(loss_id.data, self.args.train_bs)
+            Rec_con_loss.update(loss_con_rec.data, self.args.train_bs)
+            Rec_sec_loss.update(loss_sec_rec.data, self.args.train_bs)
+            Feat_loss.update(loss_feat.data, self.args.train_bs)
+            Gen_loss.update(sum_gen_loss.data, self.args.train_bs)
+
+            Sumlosses.update(sum_dis_loss.data + sum_gen_loss.data, self.args.train_bs)
+
+            batch_time.update(time.time()-start_time)
+            start_time = time.time()
+
+            ##### Board losses and visualize results #####
+            if (train_iter+1) % self.args.board_interval == 0:
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Dis_loss: {:.6f} Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Feat_loss: {:.6f} Gen_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+                    epoch, self.args.max_epoch, train_iter, self.global_train_steps, Dis_loss.val, Adv_loss.val, Att_loss.val, Id_loss.val, Rec_con_loss.val, Rec_sec_loss.val, Feat_loss.val, Gen_loss.val, Sumlosses.val
+                )
+                print_log(info=train_log, log_path=self.args.logPath, console=True)
+
+            if (train_iter+1) % self.args.image_interval == 0:
+                visualize_results(vis_dict=gen_data_dict, dis_num=self.args.display_num, epoch=epoch, prefix='train', save_dir=self.args.trainpics_dir, iter=train_iter, step=self.global_train_steps)
+            
+            self.global_train_steps += 1
+            
+            if train_iter == self.args.max_train_iters-1:
                 break
 
 
-    def validation(self, epoch, dataloader):
+    def validation(self, epoch, cover_loader, secret_loader):
+        self.facenet.eval()
         self.aadblocks.eval()
         self.attencoder.eval()
-        self.facenet.eval()
+        self.fuser.eval()
+        self.separator.eval()
+        self.encoder.eval()
+        self.decoder.eval()
         self.discriminator.eval()
 
-        vis_dict = {}
-        val_loss = 0.0
+        batch_time = AverageMeter()
 
-        for val_iter, img_val in enumerate(dataloader):
-            img_val = img_val.to(self.opts.device)
+        Adv_loss = AverageMeter()
+        Att_loss = AverageMeter()
+        Id_loss = AverageMeter()
+        Rec_con_loss = AverageMeter()
+        Rec_sec_loss = AverageMeter()
+        Feat_loss = AverageMeter()
+        
+        Val_loss = AverageMeter()        
 
-            id_org = self.facenet(common.alignment(img_val))
-            id_org_norm = l2_norm(id_org)
+        start_time = time.time()
 
-            id_input = id_org_norm * self.opts.idvec_weight + self.seq_weighted
-
-            att_val = self.attencoder(Xt=img_val)
-
-            img_rec = self.aadblocks(inputs=(att_val, id_input))
-
-            id_rec = self.facenet(common.alignment(img_rec))
-            id_rec_norm = l2_norm(id_rec)
-
-            att_rec = self.attencoder(Xt=img_rec)
-
-            dis_rec = self.discriminator(img_rec)
+        secret_iterator = iter(secret_loader)
+        for val_iter, cover_batch in enumerate(cover_loader):
+            try:
+                secret_batch = next(secret_iterator)
+            except StopIteration:
+                secret_iterator = iter(secret_loader)
+                secret_batch = next(secret_iterator)
             
-            loss_val_dict = self.cal_val_loss(dis_rec, img_val, img_rec, id_input, id_rec_norm, att_val, att_rec)
+            cover_batch = cover_batch.to(self.args.device)
+            secret_batch = secret_batch.to(self.args.device)
+
+            data_dict = self.forward_pass(cover_batch, secret_batch)
+
+            # Calculate losses
+            dis_container = self.discriminator(data_dict['container'])
+            loss_adv = self.adv_loss(dis_container, target_is_real=True)
+
+            loss_att = self.att_loss(data_dict['container_att'], data_dict['cover_att'])
+            loss_id = self.id_loss(data_dict['fused_feature'], data_dict['container_id_norm'])
+            loss_con_rec = self.rec_loss(data_dict['container'], data_dict['cover'])
+            loss_sec_rec = self.rec_loss(data_dict['secret_rec'], data_dict['secret'])
+            loss_feat = self.feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature'])
+
+            sum_val_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*(loss_con_rec + loss_sec_rec) + self.args.feat_lambda*loss_feat
+
+            Adv_loss.update(loss_adv.data, self.args.train_bs)
+            Att_loss.update(loss_att.data, self.args.train_bs)
+            Id_loss.update(loss_id.data, self.args.train_bs)
+            Rec_con_loss.update(loss_con_rec.data, self.args.train_bs)
+            Rec_sec_loss.update(loss_sec_rec.data, self.args.train_bs)
+            Feat_loss.update(loss_feat.data, self.args.train_bs)
             
-            self.print_metrics(loss_val_dict, val_iter+1, epoch, prefix='validate')
-            self.log_metrics(loss_val_dict, self.validate_steps+1, prefix='validate')
+            Val_loss.update(sum_val_loss.data, self.args.train_bs)
 
-            val_loss += loss_val_dict['Total_ValLoss']
+            batch_time.update(time.time() - start_time)
+            start_time = time.time()
 
-            self.validate_steps += 1
-
-            if val_iter == self.opts.max_val_iters-1:
+            if val_iter == self.args.max_val_iters-1:
                 break
 
-        vis_dict = {
-            'img_org': img_val,
-            'img_rec': img_rec,
-            'id_org': id_org_norm,
-            'id_input': id_input,
-            'id_rec': id_rec_norm,
-            'seq': self.seq,
-            'seq_len': self.seq_len,
-            'seq_weighted': self.seq_weighted
-        }
-        fig = common.visualize_image(cor_dict=vis_dict, dis_num=self.opts.display_num)
-        imgoutput_dir = os.path.join(self.valpics_dir, 'epoch_{:05d}.png'.format(epoch))
-        fig.savefig(imgoutput_dir)
-        plt.close(fig)
+        val_log = "Validation[{:d}] Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Feat_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch, Adv_loss.avg, Att_loss.avg, Id_loss.avg, Rec_con_loss.avg, Rec_sec_loss.avg, Feat_loss.avg, Val_loss.avg
+        )
+        print_log(info=val_log, log_path=self.args.logPath, console=True)
 
-        val_loss_avg = val_loss/self.opts.max_val_iters
+        visualize_results(vis_dict=data_dict, dis_num=self.args.display_num, epoch=epoch, prefix='validation', save_dir=self.args.valpics_dir)
 
-        return vis_dict, val_loss_avg
+        return Val_loss, data_dict
 
 
     def running(self):
-        print("Start Training...")
+        print_log("Training is beginning .......................................................", self.args.logPath)
 
-        self.train_steps = 0
-        self.validate_steps = 0
+        self.global_train_steps = 0
 
-        for epoch in range(self.opts.max_epoch):
-            self.training(epoch, self.train_loader)
+        for epoch in range(self.args.max_epoch):
+            self.training(epoch, self.train_cover_loader, self.secret_loader)
             
-            with torch.no_grad():
-                vis_dict, total_valloss = self.validation(epoch, self.val_loader)
-
-            self.save_checkpoint(Att=self.attencoder, AAD=self.aadblocks, Dis=self.discriminator, epoch=epoch, is_best=False)
-
-            if (self.best_loss is None) or (total_valloss < self.best_loss):
-                self.best_loss = total_valloss
-                self.save_checkpoint(Att=self.attencoder, AAD=self.aadblocks, Dis=self.discriminator, epoch=epoch, is_best=True)
+            if epoch % self.args.validation_interval == 0:
+                with torch.no_grad():
+                    validation_loss, data_dict = self.validation(epoch, self.val_cover_loader, self.secret_loader)
                 
-                fig = common.visualize_image(cor_dict=vis_dict, dis_num=self.opts.display_num)
-                bestoutput_dir = os.path.join(self.best_checkpoints_dir, 'best.png')
-                fig.savefig(bestoutput_dir)
-                plt.close(fig)
-            
-        print("Training Finish")
+                stat_dict = {
+                    'epoch': epoch + 1,
+                    'aad_state_dict': self.aadblocks.state_dict(),
+                    'att_state_dict': self.attencoder.state_dict(),
+                    'fuser_state_dict': self.fuser.state_dict(),
+                    'separator_state_dict': self.separator.state_dict(),
+                    'encoder_state_dict': self.encoder.state_dict(),
+                    'decoder_state_dict': self.decoder.state_dict(),
+                    'discriminator_state_dict': self.discriminator.state_dict(),
+                }
+                self.save_checkpoint(stat_dict, is_best=False)
+
+                if (self.best_loss is None) or (validation_loss < self.best_loss):
+                    self.best_loss = validation_loss
+                    self.save_checkpoint(stat_dict, is_best=True)
+                    
+                    visualize_results(vis_dict=data_dict, dis_num=self.args.display_num, epoch=epoch, prefix='validation', save_dir=self.args.trainpics_dir)
+        
+        self.logger.close()
+        print_log("Training finish .......................................................", self.args.logPath)
 
 
-    def cal_dis_loss(self, dis_real, dis_fake):
-        loss = 0.0
-
-        loss_real = self.adv_loss(dis_real, target_is_real=True)
-        loss_fake = self.adv_loss(dis_fake, target_is_real=False)
-
-        loss = (loss_real + loss_fake)/2
-        return loss
-
-    
-    def cal_gen_loss(self, dis_rec, img_input, img_output, id_input, id_output, att_input, att_output):
-        loss = 0.0
-        loss_dict = {}
-
-        loss_adv = self.adv_loss(dis_rec, target_is_real=True)
-        loss_dict['loss_adv'] = float(loss_adv)
-        loss += loss_adv
-
-        loss_att = self.att_loss(att_output, att_input)
-        loss_dict['loss_att'] = float(loss_att)
-        loss += loss_att
-
-        loss_id = self.id_loss(id_output, id_input)
-        loss_dict['loss_id'] = float(loss_id)
-        loss += loss_id
-
-        loss_rec = self.rec_loss(img_output, img_input)
-        loss_dict['loss_rec'] = float(loss_rec)
-        loss += loss_rec
-
-        loss_dict['Total_GenLoss'] = float(loss)
-        return loss, loss_dict
-
-
-    def cal_val_loss(self, dis_rec, img_input, img_output, id_input, id_output, att_input, att_output):
-        loss = 0.0
-        loss_dict = {}
-
-        loss_adv = self.adv_loss(dis_rec, target_is_real=True)
-        loss_dict['val_advloss'] = float(loss_adv)
-        loss += loss_adv
-
-        loss_att = self.att_loss(att_output, att_input)
-        loss_dict['val_attloss'] = float(loss_att)
-        loss += loss_att
-
-        loss_id = self.id_loss(id_output, id_input)
-        loss_dict['val_idloss'] = float(loss_id)
-        loss += loss_id
-
-        loss_rec = self.rec_loss(img_output, img_input)
-        loss_dict['val_recloss'] = float(loss_rec)
-        loss += loss_rec
-
-        loss_dict['Total_ValLoss'] = float(loss)
-        return loss_dict        
-
-
-    def print_metrics(self, loss_dict, iteration, epoch, prefix):
-        if prefix == 'train':
-            print('Metrics for train, iteration {:05d}, epoch {:04d}'.format(iteration, epoch))
-            for key, value in loss_dict.items():
-                print('\t{}: {:.6f}'.format(key, value))
-        elif prefix == 'validate':
-            print('Metrics for validate, iteration {:05d}, epoch {:04d} are'.format(iteration, epoch), ['{}: {:.6f}'.format(key, value) for key, value in loss_dict.items()])
-        else:
-            raise ValueError('Unexpected prefix mode {}'.format(prefix))
-
-
-    def save_checkpoint(self, Att, AAD, Dis, epoch, is_best):
+    def save_checkpoint(self, state, is_best):
         if is_best:
-            torch.save(AAD.state_dict(), os.path.join(self.best_checkpoints_dir, 'AAD_best.pth'))
-            torch.save(Att.state_dict(), os.path.join(self.best_checkpoints_dir, 'Att_best.pth'))
-            torch.save(Dis.state_dict(), os.path.join(self.best_checkpoints_dir, 'Dis_best.pth'))
+            torch.save(state['aad_state_dict'].state_dict(), os.path.join(self.best_checkpoints_dir, 'AAD_best.pth'))
+            torch.save(state['att_state_dict'].state_dict(), os.path.join(self.best_checkpoints_dir, 'ATT_best.pth'))
+            torch.save(state['fuser_state_dict'].state_dict(), os.path.join(self.best_checkpoints_dir, 'Fuser_best.pth'))
+            torch.save(state['separator_state_dict'].state_dict(), os.path.join(self.best_checkpoints_dir, 'Separator_best.pth'))
+            torch.save(state['encoder_state_dict'].state_dict(), os.path.join(self.best_checkpoints_dir, 'Encoder_best.pth'))
+            torch.save(state['decoder_state_dict'].state_dict(), os.path.join(self.best_checkpoints_dir, 'Decoder_best.pth'))
+            torch.save(state['discriminator_state_dict'].state_dict(), os.path.join(self.best_checkpoints_dir, 'Dis_best.pth'))
         else:
-            torch.save(AAD.state_dict(), os.path.join(self.checkpoints_dir, 'AAD_{:05d}.pth'.format(epoch)))
-            torch.save(Att.state_dict(), os.path.join(self.checkpoints_dir, 'Att_{:05d}.pth'.format(epoch)))
-            torch.save(Dis.state_dict(), os.path.join(self.checkpoints_dir, 'Dis_{:05d}.pth'.format(epoch)))
-
-
-    def log_metrics(self, loss_dict, iteration, prefix):
-        for key, value in loss_dict.items():
-            self.logger.add_scalar('{}/{}'.format(prefix, key), value, (iteration))
+            torch.save(state, os.path.join(self.checkpoints_dir, 'checkpoint.pth.tar'))
 
 
 
 def main():
-    opts = TrainOptions().parse()
+    args = TrainOptions().parse()
 
     cur_time = time.strftime('%Y%m%d_H%H%M%S', time.localtime())
-    output_dir = os.path.join(opts.exp_dir, '{}_sw({})_im({})_rm({})_{}'.format(cur_time, opts.seq_weight, opts.idloss_mode, opts.recloss_mode, opts.facenet_mode))
+    args.output_dir = os.path.join(args.exp_dir, '{}'.format(cur_time))
+    os.makedirs(args.output_dir, exist_ok=True)
 
-    os.makedirs(output_dir, exist_ok=True)
-    print("[*]Exporting experiment results at {}".format(output_dir))
+    ### Initialize result directories and folders ###
+    args.trainpics_dir = os.path.join(args.output_dir, 'TrainPics')
+    os.makedirs(args.trainpics_dir, exist_ok=True)
     
-    opts.output_dir = output_dir
+    args.valpics_dir = os.path.join(args.output_dir, 'ValidatePics')
+    os.makedirs(args.valpics_dir, exist_ok=True)
+    
+    args.checkpoints_dir = os.path.join(args.output_dir, 'CheckPoints')
+    os.makedirs(args.checkpoints_dir, exist_ok=True)
+    
+    args.bestresults_dir = os.path.join(args.output_dir, 'BestResults')
+    os.makedirs(args.bestresults_dir, exist_ok=True)
 
-    opts_dict = vars(opts)
-    pprint.pprint(opts_dict)
-    with open(os.path.join(output_dir, 'train_opts.json'), 'w') as f:
-        json.dump(opts_dict, f, indent=4, sort_keys=True)
+    args.tensorboardlogs_dir = os.path.join(args.output_dir, "TensorBoardLogs")
+    os.makedirs(args.tensorboardlogs_dir, exist_ok=True)
+    
+    args.log_dir = os.path.join(args.output_dir, 'TrainingLogs')
+    os.makedirs(args.log_dir, exist_ok=True)
+    args.logpath = os.path.join(args.log_dir, 'train_log.txt')
+    print_log(str(args), args.logPath, console=False)    
 
-    train = Train(opts)
+    print_log("[*]Exporting training results at {}".format(args.output_dir))
+
+    train = Train(args)
     train.running()
 
 

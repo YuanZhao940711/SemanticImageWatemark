@@ -9,13 +9,18 @@ import torch.nn.functional as F
 
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 
-from thop import profile
-from thop import clever_format
+#from thop import profile
+#from thop import clever_format
 
 
 def alignment(images):
   return F.interpolate(images[:, :, 19:237, 19:237], [112, 112], mode='bilinear', align_corners=True)
 
+
+def l2_norm(input,axis=1):
+    norm = torch.norm(input, 2, axis, True)
+    output = torch.div(input, norm)
+    return output
 
 
 def tensor2img(var):
@@ -29,103 +34,91 @@ def tensor2img(var):
 
 
 
-def visualize_image(cor_dict, dis_num):
-    fig = plt.figure(figsize=(52, 4*dis_num))
-    gs = fig.add_gridspec(nrows=dis_num, ncols=13)
+def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, step=None):
+    if prefix == 'train':
+        ResultImgName = os.path.join(save_dir, 'ResultPics_epoch{:05d}_iter{:05d}_step{:05d}.png'.format(epoch, iter, step))
+    elif prefix == 'validation':
+        ResultImgName = os.path.join(save_dir, 'ResultPics_epoch{:05d}.png'.format(epoch))
+    elif prefix == 'best':
+        ResultImgName = os.path.join(save_dir, 'BestResultPics.png')
+    else:
+        raise ValueError('[*]Invalid result picture save prefix. Must be one of train, validation or best')
 
-    seq_len = cor_dict['seq_len']
-    seq = cor_dict['seq'].cpu().detach().numpy()
-    seq_weighted = cor_dict['seq_weighted'].cpu().detach().numpy()
+    cover_gap = vis_dict['container'] - vis_dict['cover']
+    cover_gap = (cover_gap*10 + 0.5).clamp_(0.0, 1.0)
 
+    secret_gap = vis_dict['secret_rec'] - vis_dict['secret']
+    secret_gap = (secret_gap*10 + 0.5).clamp_(0.0, 1.0)
+
+    fig = plt.figure(figsize=(44, 4*dis_num))
+    gs = fig.add_gridspec(nrows=dis_num, ncols=11)
     for img_idx in range(dis_num):
         fig.add_subplot(gs[img_idx, 0])
-        img_org = tensor2img(cor_dict['img_org'][img_idx])
-        plt.imshow(img_org)
-        plt.title('Original Image')
+        cover = tensor2img(vis_dict['cover'][img_idx])
+        plt.imshow(cover)
+        plt.title('Cover')
 
         fig.add_subplot(gs[img_idx, 1])
-        img_rec = tensor2img(cor_dict['img_rec'][img_idx]) 
-        plt.imshow(img_rec)
-        plt.title('Reconstrcted Image')
+        container = tensor2img(vis_dict['container'][img_idx]) 
+        plt.imshow(container)
+        plt.title('Container')
 
         fig.add_subplot(gs[img_idx, 2])
-        img_residual = Image.fromarray(np.abs(np.array(img_org) - np.array(img_rec)))
-        img_residual = img_residual.convert('L')
-        plt.imshow(img_residual, cmap=plt.get_cmap('gray'))
-        plt.title('Residual Image')
+        covgap_img = tensor2img(cover_gap[img_idx])
+        plt.imshow(covgap_img)
+        plt.title('Cover Gap')
 
         fig.add_subplot(gs[img_idx, 3])
-        org_gray = img_org.convert('L')
-        org_f = np.fft.fft2(np.array(org_gray))
-        org_fshift = np.fft.fftshift(org_f)
-        forg_img = np.log(np.abs(org_fshift))
-        plt.imshow(forg_img, cmap='jet')
-        plt.title('Original Fourier')
+        secret = tensor2img(vis_dict['secret'][img_idx])
+        plt.imshow(secret)
+        plt.title('Secret')
 
         fig.add_subplot(gs[img_idx, 4])
-        rec_gray = img_rec.convert('L')
-        rec_f = np.fft.fft2(np.array(rec_gray))
-        rec_fshift = np.fft.fftshift(rec_f)
-        frec_img = np.log(np.abs(rec_fshift))
-        plt.imshow(frec_img, cmap='jet')
-        plt.title('Reconstrcted Fourier')
+        secret_rec = tensor2img(vis_dict['secret_rec'][img_idx])
+        plt.imshow(secret_rec)
+        plt.title('Secret_rec')
 
         fig.add_subplot(gs[img_idx, 5])
-        id_input = cor_dict['id_input'][img_idx].cpu().detach().numpy()
-        input_acorr = np.correlate(id_input, seq, 'full')
-        plt.plot(np.arange(-seq_len+1, seq_len), input_acorr, '.-')
-        plt.grid()
-        plt.title('Input_Id AutoCorrelation')
+        secgap_img = tensor2img(secret_gap[img_idx])
+        plt.imshow(secgap_img)
+        plt.title('Secret Gap')
 
         fig.add_subplot(gs[img_idx, 6])
-        id_rec = cor_dict['id_rec'][img_idx].cpu().detach().numpy()
-        rec_acorr = np.correlate(id_rec, seq, 'full')
-        plt.plot(np.arange(-seq_len+1, seq_len), rec_acorr, '.-')
+        secret_feature = vis_dict['secret_feature'][img_idx].cpu().detach().numpy()
+        plt.plot(secret_feature)
         plt.grid()
-        plt.title('Rec_Id AutoCorrelation')
+        plt.title('Secret Feature')
 
         fig.add_subplot(gs[img_idx, 7])
-        id_org = cor_dict['id_org'][img_idx].cpu().detach().numpy()
-        org_acorr = np.correlate(id_org, seq, 'full')
-        plt.plot(np.arange(-seq_len+1, seq_len), org_acorr, '.-')
+        cover_id = vis_dict['cover_id'][img_idx].cpu().detach().numpy()
+        plt.plot(cover_id)
         plt.grid()
-        plt.title('Origin_Id AutoCorrelation')
+        plt.title('Cover Id')
 
         fig.add_subplot(gs[img_idx, 8])
-        id_recres = id_rec - id_org
-        recres_acorr = np.correlate(id_recres, seq, 'full')
-        plt.plot(np.arange(-seq_len+1, seq_len), recres_acorr, '.-')
+        fused_feature = vis_dict['fused_feature'][img_idx].cpu().detach().numpy()
+        plt.plot(fused_feature)
         plt.grid()
-        plt.title('Rec_Residual AutoCorrelation')
+        plt.title('Fused feature')
 
         fig.add_subplot(gs[img_idx, 9])
-        plt.plot(id_input)
+        container_id = vis_dict['container_id'][img_idx].cpu().detach().numpy()
+        plt.plot(container_id)
         plt.grid()
-        orgin_similarity = 1 - spatial.distance.cosine(id_org, id_input)
-        noiin_similarity = 1 - spatial.distance.cosine(seq_weighted, id_input)
-        plt.title('Input_Id OrgIn:{:.2f} NoiIn:{:.2f}'.format(orgin_similarity, noiin_similarity))
+        cover_similarity = 1 - spatial.distance.cosine(cover_id, container_id)
+        fused_similarity = 1 - spatial.distance.cosine(fused_feature, container_id)
+        plt.title('Container_id CovSim:{:.2f} FusSim:{:.2f}'.format(cover_similarity, fused_similarity))
 
         fig.add_subplot(gs[img_idx, 10])
-        plt.plot(id_rec)
+        secret_feature_rec = vis_dict['secret_feature_rec'][img_idx].cpu().detach().numpy()
+        plt.plot(secret_feature_rec)
         plt.grid()
-        inrec_similarity = 1 - spatial.distance.cosine(id_input, id_rec)
-        noirec_similarity = 1 - spatial.distance.cosine(seq_weighted, id_rec)
-        plt.title('Rec_Id InRec:{:.2f} NoiRec:{:.2f}'.format(inrec_similarity, noirec_similarity))
+        feat_similarity = 1 - spatial.distance.cosine(secret_feature, secret_feature_rec)
+        plt.title('Secret RecFeat FeatSim:{:.2f}'.format(feat_similarity))
 
-        fig.add_subplot(gs[img_idx, 11])
-        plt.plot(id_recres)
-        plt.grid()
-        recres_similarity = 1 - spatial.distance.cosine(id_rec, id_recres)
-        noirec_similarity = 1 - spatial.distance.cosine(seq_weighted, id_recres)
-        plt.title('Rec_Residual RecRes:{:.2f} NosRec:{:.2f}'.format(recres_similarity, noirec_similarity))
-
-        fig.add_subplot(gs[img_idx, 12])
-        plt.plot(seq_weighted)
-        plt.grid()
-        seqnoi_similarity = 1 - spatial.distance.cosine(seq, seq_weighted)
-        plt.title('Input_seq_weighted seqNoi:{:.2f}'.format(seqnoi_similarity))
     plt.tight_layout()
-    return fig
+    fig.savefig(ResultImgName)
+    fig.close(fig)
 
 
 
@@ -214,8 +207,42 @@ def evaluation(label, pred):
     return accuracy, precision, recall, f1_score, tn, fp, fn, tp
 
 
+"""
 def count_models(test_model, dummy_input):
     flops, params = profile(test_model, inputs=(dummy_input,))
     flops, params = clever_format([flops, params], '%.4f')
 
     return flops, params
+"""
+
+
+
+def print_log(info, log_path, console=True):
+    ##### Print the information into the console #####
+    if console:
+        print(info)
+    ##### Write the information into the log file #####
+    if not os.path.exists(log_path):
+        fp = open(log_path, "w")
+        fp.writelines(log_path + "\n")
+    else:
+        with open(log_path, "a+") as f:
+            f.writelines(info + "\n")
+
+
+
+class AverageMeter(object):
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count

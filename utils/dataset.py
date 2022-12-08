@@ -56,6 +56,22 @@ def label_dataset(dir, label):
 
 
 
+class ImageDataset(Dataset):
+    def __init__(self, root, transforms):
+        self.image_paths = sorted(make_dataset(root))
+        self.transforms = transforms
+    def __len__(self):
+        return len(self.image_paths)
+    def __getitem__(self, index):
+        try:
+            image_path = self.image_paths[index]
+            image = Image.open(image_path).convert("RGB")
+            return self.transforms(image)
+        except:
+            self.__getitem__(index + 1)
+
+
+
 class TrainDataset(Dataset):
     def __init__(self, root):
         print("[*]Loading Images from {}".format(root))
