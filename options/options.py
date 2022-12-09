@@ -46,6 +46,7 @@ class TrainOptions:
 
         self.parser.add_argument('--idloss_mode', default='Cos', type=str)
         self.parser.add_argument('--recloss_mode', default='lpips', type=str)
+        self.parser.add_argument('--featloss_mode', default='MAE', type=str)
         self.parser.add_argument('--facenet_mode', default='arcface', type=str)
 
         self.parser.add_argument('--board_interval', default=50, type=int)

@@ -1,12 +1,10 @@
 import torch
 import torch.nn as nn
 
-from typing import List
-from torch import tensor as Tensor
 
 
 class Separator(nn.Module):
-    def __init__(self, latent_dim: int) -> None:
+    def __init__(self, latent_dim) :
         super(Separator, self).__init__()
 
         self.separator = nn.Sequential(
@@ -19,7 +17,7 @@ class Separator(nn.Module):
         )
 
 
-    def forward(self, feature_fused: Tensor) -> Tensor:
+    def forward(self, feature_fused):
 
         feature_separated = self.separator(feature_fused)
 

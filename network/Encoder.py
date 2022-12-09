@@ -1,13 +1,10 @@
 import torch
 import torch.nn as nn
 
-from typing import List
-from torch import tensor as Tensor
-
 
 
 class Encoder(nn.Module):
-    def __init__(self, in_channels: int, latent_dim: int, hidden_dims=[32, 64, 128, 256, 512]) -> None:
+    def __init__(self, in_channels, latent_dim, hidden_dims=[32, 64, 128, 256, 512, 1024, 2048]) :
 
         super(Encoder, self).__init__()
 
@@ -23,13 +20,19 @@ class Encoder(nn.Module):
             )
             in_channels = h_dim
         
+        modules.append(
+            nn.AdaptiveAvgPool2d(1)
+        )
+
         self.encoder = nn.Sequential(*modules)
+        
+        #self.fc_mu = nn.Linear(hidden_dims[-1]*4, latent_dim)
+        #self.fc_var = nn.Linear(hidden_dims[-1]*4, latent_dim)
+        self.fc_mu = nn.Linear(hidden_dims[-1], latent_dim)
+        self.fc_var = nn.Linear(hidden_dims[-1], latent_dim)
 
-        self.fc_mu = nn.Linear(hidden_dims[-1]*4, latent_dim)
-        self.fc_var = nn.Linear(hidden_dims[-1]*4, latent_dim)
 
-
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input):
         result = self.encoder(input)
         result = torch.flatten(result, start_dim=1)
 

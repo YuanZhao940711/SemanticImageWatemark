@@ -160,3 +160,27 @@ class WatLoss(nn.Module):
         return wat_loss
 
 
+class FeatLoss(nn.Module):
+    def __init__(self, loss_mode):
+        super(FeatLoss, self).__init__()
+
+        if loss_mode == 'MSE':
+            self.criterion = nn.MSELoss()
+            self.mode = loss_mode
+        elif loss_mode == 'MAE':
+            self.criterion = nn.L1Loss()
+            self.mode = loss_mode
+        elif loss_mode == 'Cos':
+            self.mode = loss_mode
+        else:
+            raise ValueError('Unexpected Loss Mode {}'.format(loss_mode))
+
+    def forward(self, feat_rec, feat_ori):
+        if self.mode == 'MSE':
+            feat_loss = self.criterion(feat_rec, feat_ori)
+        elif self.mode == 'MAE':
+            feat_loss = self.criterion(feat_rec, feat_ori)
+        elif self.mode == 'Cos':
+            feat_loss = torch.mean(1 - torch.cosine_similarity(feat_rec, feat_ori, dim=1))
+        
+        return feat_loss

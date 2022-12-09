@@ -1,18 +1,16 @@
 import torch
 import torch.nn as nn
 
-from typing import List
-from torch import tensor as Tensor
 
 
 class Decoder(nn.Module):
-    def __init__(self, latent_dim: int, hidden_dims=[32, 64, 128, 256, 512]):
+    def __init__(self, latent_dim, hidden_dims=[32, 64, 128, 256, 512, 1024, 2048]):
         
         super(Decoder, self).__init__()
 
         modules = []
 
-        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1] * 4)
+        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1])
 
         hidden_dims.reverse()
 
@@ -31,17 +29,23 @@ class Decoder(nn.Module):
             nn.ConvTranspose2d(in_channels=hidden_dims[-1], out_channels=hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(hidden_dims[-1]),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=hidden_dims[-1], out_channels=3, kernel_size=3, padding=1),
+
+            nn.ConvTranspose2d(in_channels=hidden_dims[-1], out_channels=3, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(3),
+            nn.LeakyReLU(),
+
+            nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1),
             nn.Tanh()
         )
 
 
-    def forward(self, latent_z: Tensor) -> Tensor:
-        result = self.decoder_input(latent_z)
-        result = result.view(-1, 512, 2, 2)
+    def forward(self, latent_z):
+        result = self.decoder_input(latent_z) # bs*2048 -> bs*2048
 
-        result = self.decoder(result)
+        result = result.view(-1, 2048, 1, 1) # bs*2048*1*1
 
-        result = self.final_layer(result)
+        result = self.decoder(result) # bs*32*64*64
+
+        result = self.final_layer(result) # bs*3*256*256
 
         return result

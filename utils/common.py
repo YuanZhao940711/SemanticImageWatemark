@@ -118,7 +118,7 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
 
     plt.tight_layout()
     fig.savefig(ResultImgName)
-    fig.close(fig)
+    plt.close(fig)
 
 
 

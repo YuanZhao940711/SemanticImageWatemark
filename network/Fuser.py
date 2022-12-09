@@ -1,12 +1,10 @@
 import torch
 import torch.nn as nn
 
-from typing import List
-from torch import tensor as Tensor
 
 
 class Fuser(nn.Module):
-    def __init__(self, latent_dim: int) -> None:
+    def __init__(self, latent_dim):
         super(Fuser, self).__init__()
 
         self.fuser = nn.Sequential(
@@ -19,10 +17,10 @@ class Fuser(nn.Module):
         )
         
 
-    def forward(self, feature_vector_a: Tensor, feature_vector_b: Tensor) -> Tensor:
+    def forward(self, feature_vector_a, feature_vector_b):
 
-        feature_vectors = torch.cat((feature_vector_a, feature_vector_b), dim=0)
+        feature_vectors = torch.cat((feature_vector_a, feature_vector_b), dim=1)
 
-        feature_fused = self.adopter(feature_vectors)
+        feature_fused = self.fuser(feature_vectors)
 
         return feature_fused
