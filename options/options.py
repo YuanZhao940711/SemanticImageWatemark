@@ -41,7 +41,8 @@ class TrainOptions:
         self.parser.add_argument('--adv_lambda', default=1.0, type=float)
         self.parser.add_argument('--att_lambda', default=1.0, type=float)
         self.parser.add_argument('--id_lambda', default=1.0, type=float)
-        self.parser.add_argument('--rec_lambda', default=1.0, type=float)
+        self.parser.add_argument('--rec_con_lambda', default=1.0, type=float)
+        self.parser.add_argument('--rec_sec_lambda', default=1.0, type=float)
         self.parser.add_argument('--feat_lambda', default=1.0, type=float)
 
         self.parser.add_argument('--idloss_mode', default='Cos', type=str)

@@ -184,3 +184,12 @@ class FeatLoss(nn.Module):
             feat_loss = torch.mean(1 - torch.cosine_similarity(feat_rec, feat_ori, dim=1))
         
         return feat_loss
+
+
+class KlLoss(nn.Module):
+    def __init__(self):
+        super(KlLoss, self).__init__()
+        
+    def forward(self, mu, log_var):
+        kl_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim=0)
+        return kl_loss

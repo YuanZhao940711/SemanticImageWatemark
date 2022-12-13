@@ -44,4 +44,4 @@ class Encoder(nn.Module):
 
         latent_z = eps * std + mu
 
-        return latent_z
+        return latent_z, mu, log_var

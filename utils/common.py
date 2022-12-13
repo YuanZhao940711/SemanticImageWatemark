@@ -207,6 +207,7 @@ def evaluation(label, pred):
     return accuracy, precision, recall, f1_score, tn, fp, fn, tp
 
 
+
 """
 def count_models(test_model, dummy_input):
     flops, params = profile(test_model, inputs=(dummy_input,))
@@ -228,6 +229,12 @@ def print_log(info, log_path, console=True):
     else:
         with open(log_path, "a+") as f:
             f.writelines(info + "\n")
+
+
+
+def log_metrics(writer, data_dict, step, prefix):
+    for key, value in data_dict.items():
+        writer.add_scalar('{}/{}'.format(prefix, key), value, (step))
 
 
 

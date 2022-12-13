@@ -26,7 +26,7 @@ from criteria import loss_functions
 from face_modules.model import Backbone
 
 from utils.dataset import ImageDataset
-from utils.common import visualize_results, print_log, alignment, l2_norm, AverageMeter
+from utils.common import visualize_results, print_log, alignment, l2_norm, log_metrics, AverageMeter
 
 
 
@@ -135,6 +135,7 @@ class Train:
         self.att_loss = loss_functions.AttLoss().to(self.args.device)
         self.id_loss = loss_functions.IdLoss(self.args.idloss_mode).to(self.args.device)
         self.rec_loss = loss_functions.RecLoss(self.args.recloss_mode, self.args.device)
+        self.kl_loss = loss_functions.KlLoss().to(self.args.device)
         self.feat_loss = loss_functions.FeatLoss(self.args.featloss_mode).to(self.args.device)
 
         ##### Initialize data loaders ##### 
@@ -180,7 +181,7 @@ class Train:
         )
 
         ### Initialize logger ###
-        self.logger = SummaryWriter(log_dir=self.args.tensorboardlogs_dir)
+        self.writer = SummaryWriter(log_dir=self.args.tensorboardlogs_dir)
         self.best_loss = None
 
 
@@ -190,9 +191,10 @@ class Train:
         cover_id = self.facenet(alignment(cover))
         cover_id_norm = l2_norm(cover_id) 
 
-        secret_feature = self.encoder(secret)
+        secret_feature, secret_mu, secret_logvar = self.encoder(secret)
 
         fused_feature = self.fuser(cover_id_norm, secret_feature)
+        # try add l2 norm on fused feature later 
 
         container = self.aadblocks(inputs=(cover_att, fused_feature))
 
@@ -211,6 +213,8 @@ class Train:
             'container': container,
             'secret': secret,
             'secret_rec': secret_rec,
+            'secret_mu': secret_mu,
+            'secret_logvar': secret_logvar,
             'cover_id': cover_id,
             'secret_feature': secret_feature,
             'fused_feature': fused_feature,
@@ -231,6 +235,7 @@ class Train:
         Id_loss = AverageMeter()
         Rec_con_loss = AverageMeter()
         Rec_sec_loss = AverageMeter()
+        Kl_loss = AverageMeter()
         Feat_loss = AverageMeter()
         Gen_loss = AverageMeter()
         Sumlosses = AverageMeter()
@@ -281,10 +286,10 @@ class Train:
 
             self.aadblocks.train()
             self.attencoder.train()
-            self.fuser.eval()
-            self.separator.eval()
-            self.encoder.eval()
-            self.decoder.eval()
+            self.fuser.train()
+            self.separator.train()
+            self.encoder.train()
+            self.decoder.train()
 
             gen_data_dict = self.forward_pass(cover_batch, secret_batch)
 
@@ -295,12 +300,11 @@ class Train:
             loss_att = self.att_loss(gen_data_dict['container_att'], gen_data_dict['cover_att'])
             loss_id = self.id_loss(gen_data_dict['fused_feature'], gen_data_dict['container_id'])
             loss_con_rec = self.rec_loss(gen_data_dict['container'], gen_data_dict['cover'])
-            #print(gen_data_dict['secret_rec'].shape, gen_data_dict['secret'].shape)
             loss_sec_rec = self.rec_loss(gen_data_dict['secret_rec'], gen_data_dict['secret'])
-            #print(gen_data_dict['secret_feature_rec'].shape, gen_data_dict['secret_feature'].shape)
+            loss_kl = self.kl_loss(gen_data_dict['secret_mu'], gen_data_dict['secret_logvar'])
             loss_feat = self.feat_loss(gen_data_dict['secret_feature_rec'], gen_data_dict['secret_feature'])
 
-            sum_gen_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*(loss_con_rec + loss_sec_rec) + self.args.feat_lambda*loss_feat
+            sum_gen_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*(loss_sec_rec + loss_kl) + self.args.feat_lambda*loss_feat
 
             self.opt_aad.zero_grad()
             self.opt_att.zero_grad()
@@ -326,6 +330,7 @@ class Train:
             Id_loss.update(loss_id.item(), self.args.train_bs)
             Rec_con_loss.update(loss_con_rec.item(), self.args.train_bs)
             Rec_sec_loss.update(loss_sec_rec.item(), self.args.train_bs)
+            Kl_loss.update(loss_kl.item(), self.args.train_bs)
             Feat_loss.update(loss_feat.item(), self.args.train_bs)
             Gen_loss.update(sum_gen_loss.item(), self.args.train_bs)
 
@@ -334,15 +339,29 @@ class Train:
             batch_time.update(time.time()-start_time)
             start_time = time.time()
 
-            ##### Board losses and visualize results #####
+            train_data_dict = {
+                'DisSumLoss': Dis_loss.avg,
+                'AdvLoss': Adv_loss.avg,
+                'AttLoss': Att_loss.avg,
+                'IdLoss': Id_loss.avg,
+                'RecConLoss': Rec_con_loss.avg,
+                'RecSecLoss': Rec_sec_loss.avg,
+                'KlLoss': Kl_loss.avg,
+                'FeatLoss': Feat_loss.avg,
+                'GenSumLoss': Gen_loss.avg,
+                'SumTrainLosses': Sumlosses.avg
+            }
+
+            ##### Board and log losses, and visualize results #####
             if (self.global_train_steps+1) % self.args.board_interval == 0:
-                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Dis_loss: {:.6f} Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Feat_loss: {:.6f} Gen_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
-                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Dis_loss.val, Adv_loss.val, Att_loss.val, Id_loss.val, Rec_con_loss.val, Rec_sec_loss.val, Feat_loss.val, Gen_loss.val, Sumlosses.val, batch_time.val
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Dis_loss: {:.6f} Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Kl_loss: {:.6f} Feat_loss: {:.6f} Gen_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Dis_loss.val, Adv_loss.val, Att_loss.val, Id_loss.val, Rec_con_loss.val, Rec_sec_loss.val, Kl_loss.val, Feat_loss.val, Gen_loss.val, Sumlosses.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
+                log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
 
             if (self.global_train_steps+1) % self.args.image_interval == 0:
-                visualize_results(vis_dict=gen_data_dict, dis_num=self.args.display_num, epoch=epoch, prefix='train', save_dir=self.args.trainpics_dir, iter=train_iter, step=self.global_train_steps)
+                visualize_results(vis_dict=gen_data_dict, dis_num=self.args.display_num, epoch=epoch+1, prefix='train', save_dir=self.args.trainpics_dir, iter=train_iter+1, step=self.global_train_steps+1)
             
             self.global_train_steps += 1
             
@@ -367,6 +386,7 @@ class Train:
         Id_loss = AverageMeter()
         Rec_con_loss = AverageMeter()
         Rec_sec_loss = AverageMeter()
+        Kl_loss = AverageMeter()
         Feat_loss = AverageMeter()
         
         Val_loss = AverageMeter()        
@@ -394,15 +414,17 @@ class Train:
             loss_id = self.id_loss(data_dict['fused_feature'], data_dict['container_id'])
             loss_con_rec = self.rec_loss(data_dict['container'], data_dict['cover'])
             loss_sec_rec = self.rec_loss(data_dict['secret_rec'], data_dict['secret'])
+            loss_kl = self.kl_loss(data_dict['secret_mu'], data_dict['secret_logvar'])
             loss_feat = self.feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature'])
 
-            sum_val_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*(loss_con_rec + loss_sec_rec) + self.args.feat_lambda*loss_feat
+            sum_val_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*(loss_con_rec + loss_sec_rec + loss_kl) + self.args.feat_lambda*loss_feat
 
             Adv_loss.update(loss_adv.item(), self.args.train_bs)
             Att_loss.update(loss_att.item(), self.args.train_bs)
             Id_loss.update(loss_id.item(), self.args.train_bs)
             Rec_con_loss.update(loss_con_rec.item(), self.args.train_bs)
             Rec_sec_loss.update(loss_sec_rec.item(), self.args.train_bs)
+            Kl_loss.update(loss_kl.item(), self.args.train_bs)
             Feat_loss.update(loss_feat.item(), self.args.train_bs)
             
             Val_loss.update(sum_val_loss.item(), self.args.train_bs)
@@ -413,12 +435,24 @@ class Train:
             if val_iter == self.args.max_val_iters-1:
                 break
 
-        val_log = "Validation[{:d}] Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Feat_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
-            epoch+1, Adv_loss.avg, Att_loss.avg, Id_loss.avg, Rec_con_loss.avg, Rec_sec_loss.avg, Feat_loss.avg, Val_loss.avg, batch_time.avg
+        validate_data_dict = {
+            'AdvLoss': Adv_loss.avg,
+            'AttLoss': Att_loss.avg,
+            'IdLoss': Id_loss.avg,
+            'RecConLoss': Rec_con_loss.avg,
+            'RecSecLoss': Rec_sec_loss.avg,
+            'KlLoss': Kl_loss.avg,
+            'FeatLoss': Feat_loss.avg,
+            'SumValidateLosses': Val_loss.avg
+        }
+        log_metrics(writer=self.writer, data_dict=validate_data_dict, step=epoch+1, prefix='validate')
+
+        val_log = "Validation[{:d}] Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Kl_loss: {:.6f} Feat_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch+1, Adv_loss.avg, Att_loss.avg, Id_loss.avg, Rec_con_loss.avg, Rec_sec_loss.avg, Kl_loss.avg, Feat_loss.avg, Val_loss.avg, batch_time.avg
         )
         print_log(info=val_log, log_path=self.args.logpath, console=True)
 
-        visualize_results(vis_dict=data_dict, dis_num=self.args.display_num, epoch=epoch, prefix='validation', save_dir=self.args.valpics_dir)
+        visualize_results(vis_dict=data_dict, dis_num=self.args.display_num, epoch=epoch+1, prefix='validation', save_dir=self.args.valpics_dir)
 
         return Val_loss.avg, data_dict
 
@@ -453,7 +487,7 @@ class Train:
                     
                     visualize_results(vis_dict=data_dict, dis_num=self.args.display_num, epoch=epoch, prefix='best', save_dir=self.args.bestresults_dir)
         
-        self.logger.close()
+        self.writer.close()
         print_log("Training finish .......................................................", self.args.logpath)
 
 

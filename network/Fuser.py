@@ -13,7 +13,10 @@ class Fuser(nn.Module):
             nn.Linear(in_features=latent_dim*4, out_features=latent_dim*2),
             nn.LeakyReLU(),
             nn.Linear(in_features=latent_dim*2, out_features=latent_dim),
-            nn.Sigmoid()
+            #nn.Sigmoid()
+        )
+        self.output_layer = nn.Sequential(
+            nn.BatchNorm1d(num_features=latent_dim)
         )
         
 
@@ -22,5 +25,7 @@ class Fuser(nn.Module):
         feature_vectors = torch.cat((feature_vector_a, feature_vector_b), dim=1)
 
         feature_fused = self.fuser(feature_vectors)
+
+        feature_fused = self.output_layer(feature_fused)
 
         return feature_fused
