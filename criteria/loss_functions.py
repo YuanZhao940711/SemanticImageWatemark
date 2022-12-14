@@ -7,6 +7,7 @@ from torch.nn import functional as F
 from criteria.lpips.lpips import LPIPS
 
 
+
 class GANLoss(nn.Module):
     def __init__(self, gan_mode='hinge', target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor, opt=None):
         super(GANLoss, self).__init__()
@@ -74,6 +75,7 @@ class GANLoss(nn.Module):
             return self.loss(input, target_is_real)
 
 
+
 class AttLoss(nn.Module):
     def __init__(self):
         super(AttLoss, self).__init__()
@@ -86,6 +88,7 @@ class AttLoss(nn.Module):
             att_loss += self.criterion(att_input[i], att_output[i])
         att_loss *= 0.5
         return att_loss
+
 
 
 class IdLoss(nn.Module):
@@ -114,9 +117,10 @@ class IdLoss(nn.Module):
         return id_loss
 
 
-class RecLoss(nn.Module):
+
+class RecConLoss(nn.Module):
     def __init__(self, loss_mode, device):
-        super(RecLoss, self).__init__()
+        super(RecConLoss, self).__init__()
 
         self.mode = loss_mode
         if self.mode == 'l2':
@@ -133,31 +137,25 @@ class RecLoss(nn.Module):
         return rec_loss
 
 
-class WatLoss(nn.Module):
-    def __init__(self, loss_mode):
-        super(WatLoss, self).__init__()
 
-        if loss_mode == 'MSE':
-            self.criterion = nn.MSELoss()
-            self.mode = loss_mode
-        elif loss_mode == 'MAE':
-            self.criterion = nn.L1Loss()
-            self.mode = loss_mode
-        elif loss_mode == 'Cos':
-            self.mode = loss_mode
+class RecSecLoss(nn.Module):
+    def __init__(self, loss_mode, device):
+        super(RecSecLoss, self).__init__()
+        self.mode = loss_mode
+        if self.mode == 'l2':
+            self.criterion = nn.MSELoss().to(device)
+        elif self.mode == 'lpips':
+            self.criterion = LPIPS(net_type='alex').to(device).eval()
         else:
             raise ValueError('Unexpected Loss Mode {}'.format(loss_mode))
-    def forward(self, id_output, id_org, wat_ori):
-        wat_res = id_output - id_org
-        wat_ori = wat_ori.repeat(wat_res.shape[0], 1)
 
-        if self.mode == 'MSE':
-            wat_loss = self.criterion(wat_res, wat_ori)
-        elif self.mode == 'MAE':
-            wat_loss = self.criterion(wat_res, wat_ori)
-        elif self.mode == 'Cos':
-            wat_loss = torch.mean(1 - torch.cosine_similarity(wat_res, wat_ori, dim=1))
-        return wat_loss
+    def forward(self, img_input, img_output):
+        if self.mode == 'l2':
+            rec_loss = 0.5 * self.criterion(img_input, img_output)
+        elif self.mode == 'lpips':
+            rec_loss = self.criterion(img_input, img_output)
+        return rec_loss
+
 
 
 class FeatLoss(nn.Module):
@@ -184,6 +182,7 @@ class FeatLoss(nn.Module):
             feat_loss = torch.mean(1 - torch.cosine_similarity(feat_rec, feat_ori, dim=1))
         
         return feat_loss
+
 
 
 class KlLoss(nn.Module):

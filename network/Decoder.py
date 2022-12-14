@@ -4,13 +4,13 @@ import torch.nn as nn
 
 
 class Decoder(nn.Module):
-    def __init__(self, latent_dim, hidden_dims=[32, 64, 128, 256, 512, 1024, 2048]):
-        
+    def __init__(self, latent_dim, hidden_dims=[16, 32, 64, 128, 256, 512, 1024, 2048]): # hidden_dims=[32, 64, 128, 256, 512, 1024, 2048]/[32, 64, 64, 128, 128, 256, 256, 512]
         super(Decoder, self).__init__()
 
         modules = []
 
-        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1])
+        self.input_layer = nn.Linear(latent_dim, hidden_dims[-1])
+        #self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1]*4)
 
         hidden_dims.reverse()
 
@@ -25,27 +25,30 @@ class Decoder(nn.Module):
 
         self.decoder = nn.Sequential(*modules)
 
-        self.final_layer = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=hidden_dims[-1], out_channels=hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(hidden_dims[-1]),
-            nn.LeakyReLU(),
-
+        self.output_layer = nn.Sequential(
+            #nn.ConvTranspose2d(in_channels=hidden_dims[-1], out_channels=hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.ConvTranspose2d(in_channels=hidden_dims[-1], out_channels=3, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(3),
-            nn.LeakyReLU(),
+            nn.ReLU(inplace=True),
 
-            nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1),
-            nn.Tanh()
+            #nn.ConvTranspose2d(in_channels=hidden_dims[-1], out_channels=3, kernel_size=3, stride=2, padding=1, output_padding=1),
+            #nn.BatchNorm2d(3),
+            #nn.LeakyReLU(),
+
+            #nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, stride=1, padding=1),
+            
+            #nn.Conv2d(in_channels=hidden_dims[-1], out_channels=3, kernel_size=1, stride=1, padding=0),
+            nn.Sigmoid()
         )
 
 
     def forward(self, latent_z):
-        result = self.decoder_input(latent_z) # bs*2048 -> bs*2048
+        result = self.input_layer(latent_z) # bs*512 -> bs*2048
+        result = result.view(result.shape[0], result.shape[-1], 1, 1) # bs*2048*1*1
 
-        result = result.view(-1, 2048, 1, 1) # bs*2048*1*1
+        result = self.decoder(result) # bs*2048*1*1 -> bs*16*128*128
 
-        result = self.decoder(result) # bs*32*64*64
-
-        result = self.final_layer(result) # bs*3*256*256
+        result = self.output_layer(result) # bs*16*128*128 -> bs*3*256*256
 
         return result
+

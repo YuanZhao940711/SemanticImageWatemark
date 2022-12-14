@@ -44,29 +44,29 @@ class Train:
         self.args.device = torch.device('cuda:0' if torch.cuda.is_available else 'cpu')
         print_log('[*]Running on device: {}'.format(self.args.device), self.args.logpath)
 
-        ##### Initialize networks and load pretrained models ######
-        # AAD
+        ##### Initialize networks and load pretrained models #####
+        # AAD Generator
         self.aadblocks = AADGenerator(c_id=512).to(self.args.device)
         try:
             self.aadblocks.load_state_dict(torch.load(os.path.join(self.args.aadblocks_dir, 'AAD_best.pth'), map_location=self.args.device), strict=True)
         except:
-            print_log("[*]Training AAD Blocks from scratch", self.args.logpath)
+            print_log("[*]Training AAD Generator from scratch", self.args.logpath)
         
-        # ATT
+        # Att Encoder
         self.attencoder = MLAttrEncoder().to(self.args.device)
         try:
             self.attencoder.load_state_dict(torch.load(os.path.join(self.args.attencoder_dir, 'Att_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Attributes Encoder from scratch", self.args.logpath)
 
-        # Dis
+        # Discriminator
         self.discriminator = MultiscaleDiscriminator(input_nc=3, n_layers=6, norm_layer=torch.nn.InstanceNorm2d).to(self.args.device)
         try:
             self.discriminator.load_state_dict(torch.load(os.path.join(self.args.discriminator_dir, 'Dis_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Discriminator from scratch", self.args.logpath)
 
-        # FaceNet
+        # Id Encoder
         print_log("[*]Loading Face Recognition Model {} from {}".format(self.args.facenet_mode, self.args.facenet_dir), self.args.logpath)
         if self.args.facenet_mode == 'arcface':
             self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se').to(self.args.device)
@@ -122,20 +122,21 @@ class Train:
         """
 
         ##### Initialize optimizers #####
-        self.opt_aad = optim.Adam(self.aadblocks.parameters(), lr=self.args.lr_aad, betas=(0, 0.999))
-        self.opt_att = optim.Adam(self.attencoder.parameters(), lr=self.args.lr_att, betas=(0, 0.999))
-        self.opt_dis = optim.Adam(self.discriminator.parameters(), lr=self.args.lr_dis, betas=(0, 0.999))
-        self.opt_fuser = optim.Adam(self.fuser.parameters(), lr=self.args.lr_fuser, betas=(0, 0.999))
-        self.opt_separator = optim.Adam(self.separator.parameters(), lr=self.args.lr_separator, betas=(0, 0.999))
-        self.opt_encoder = optim.Adam(self.encoder.parameters(), lr=self.args.lr_encoder, betas=(0, 0.999))
-        self.opt_decoder = optim.Adam(self.decoder.parameters(), lr=self.args.lr_decoder, betas=(0, 0.999))
+        self.opt_aad = optim.Adam(self.aadblocks.parameters(), lr=self.args.lr_aad, betas=(0, 0.5))
+        self.opt_att = optim.Adam(self.attencoder.parameters(), lr=self.args.lr_att, betas=(0, 0.5))
+        self.opt_dis = optim.Adam(self.discriminator.parameters(), lr=self.args.lr_dis, betas=(0, 0.5))
+        self.opt_fuser = optim.Adam(self.fuser.parameters(), lr=self.args.lr_fuser, betas=(0, 0.5))
+        self.opt_separator = optim.Adam(self.separator.parameters(), lr=self.args.lr_separator, betas=(0, 0.5))
+        self.opt_encoder = optim.Adam(self.encoder.parameters(), lr=self.args.lr_encoder, betas=(0, 0.5))
+        self.opt_decoder = optim.Adam(self.decoder.parameters(), lr=self.args.lr_decoder, betas=(0, 0.5))
 
-        ### Initialize loss functions ###
+        ##### Initialize loss functions #####
         self.adv_loss = loss_functions.GANLoss().to(self.args.device)
         self.att_loss = loss_functions.AttLoss().to(self.args.device)
         self.id_loss = loss_functions.IdLoss(self.args.idloss_mode).to(self.args.device)
-        self.rec_loss = loss_functions.RecLoss(self.args.recloss_mode, self.args.device)
-        self.kl_loss = loss_functions.KlLoss().to(self.args.device)
+        self.rec_con_loss = loss_functions.RecConLoss(self.args.recconloss_mode, self.args.device)
+        self.rec_sec_loss = loss_functions.RecSecLoss(self.args.recsecloss_mode, self.args.device)
+        #self.kl_loss = loss_functions.KlLoss().to(self.args.device)
         self.feat_loss = loss_functions.FeatLoss(self.args.featloss_mode).to(self.args.device)
 
         ##### Initialize data loaders ##### 
@@ -180,7 +181,7 @@ class Train:
             drop_last=True
         )
 
-        ### Initialize logger ###
+        ##### Initialize logger #####
         self.writer = SummaryWriter(log_dir=self.args.tensorboardlogs_dir)
         self.best_loss = None
 
@@ -191,9 +192,12 @@ class Train:
         cover_id = self.facenet(alignment(cover))
         cover_id_norm = l2_norm(cover_id) 
 
-        secret_feature, secret_mu, secret_logvar = self.encoder(secret)
+        #secret_feature, secret_mu, secret_logvar = self.encoder(secret)
+        secret_feature = self.encoder(secret)
+        secret_feature_norm = l2_norm(secret_feature)
 
-        fused_feature = self.fuser(cover_id_norm, secret_feature)
+        #fused_feature = self.fuser(cover_id_norm, secret_feature)
+        fused_feature = self.fuser(cover_id_norm, secret_feature_norm)
         # try add l2 norm on fused feature later 
 
         container = self.aadblocks(inputs=(cover_att, fused_feature))
@@ -213,10 +217,11 @@ class Train:
             'container': container,
             'secret': secret,
             'secret_rec': secret_rec,
-            'secret_mu': secret_mu,
-            'secret_logvar': secret_logvar,
+            #'secret_mu': secret_mu,
+            #'secret_logvar': secret_logvar,
             'cover_id': cover_id,
-            'secret_feature': secret_feature,
+            #'secret_feature': secret_feature,
+            'secret_feature': secret_feature_norm,
             'fused_feature': fused_feature,
             'container_id': container_id_norm,
             'secret_feature_rec': secret_feature_rec,
@@ -235,7 +240,7 @@ class Train:
         Id_loss = AverageMeter()
         Rec_con_loss = AverageMeter()
         Rec_sec_loss = AverageMeter()
-        Kl_loss = AverageMeter()
+        #Kl_loss = AverageMeter()
         Feat_loss = AverageMeter()
         Gen_loss = AverageMeter()
         Sumlosses = AverageMeter()
@@ -299,12 +304,13 @@ class Train:
 
             loss_att = self.att_loss(gen_data_dict['container_att'], gen_data_dict['cover_att'])
             loss_id = self.id_loss(gen_data_dict['fused_feature'], gen_data_dict['container_id'])
-            loss_con_rec = self.rec_loss(gen_data_dict['container'], gen_data_dict['cover'])
-            loss_sec_rec = self.rec_loss(gen_data_dict['secret_rec'], gen_data_dict['secret'])
-            loss_kl = self.kl_loss(gen_data_dict['secret_mu'], gen_data_dict['secret_logvar'])
+            loss_con_rec = self.rec_con_loss(gen_data_dict['container'], gen_data_dict['cover'])
+            loss_sec_rec = self.rec_sec_loss(gen_data_dict['secret_rec'], gen_data_dict['secret'])
+            #loss_kl = self.kl_loss(gen_data_dict['secret_mu'], gen_data_dict['secret_logvar'])
             loss_feat = self.feat_loss(gen_data_dict['secret_feature_rec'], gen_data_dict['secret_feature'])
 
-            sum_gen_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*(loss_sec_rec + loss_kl) + self.args.feat_lambda*loss_feat
+            #sum_gen_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*(loss_sec_rec + loss_kl) + self.args.feat_lambda*loss_feat
+            sum_gen_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*loss_sec_rec + self.args.feat_lambda*loss_feat
 
             self.opt_aad.zero_grad()
             self.opt_att.zero_grad()
@@ -330,7 +336,7 @@ class Train:
             Id_loss.update(loss_id.item(), self.args.train_bs)
             Rec_con_loss.update(loss_con_rec.item(), self.args.train_bs)
             Rec_sec_loss.update(loss_sec_rec.item(), self.args.train_bs)
-            Kl_loss.update(loss_kl.item(), self.args.train_bs)
+            #Kl_loss.update(loss_kl.item(), self.args.train_bs)
             Feat_loss.update(loss_feat.item(), self.args.train_bs)
             Gen_loss.update(sum_gen_loss.item(), self.args.train_bs)
 
@@ -346,7 +352,7 @@ class Train:
                 'IdLoss': Id_loss.avg,
                 'RecConLoss': Rec_con_loss.avg,
                 'RecSecLoss': Rec_sec_loss.avg,
-                'KlLoss': Kl_loss.avg,
+                #'KlLoss': Kl_loss.avg,
                 'FeatLoss': Feat_loss.avg,
                 'GenSumLoss': Gen_loss.avg,
                 'SumTrainLosses': Sumlosses.avg
@@ -354,8 +360,13 @@ class Train:
 
             ##### Board and log losses, and visualize results #####
             if (self.global_train_steps+1) % self.args.board_interval == 0:
+                """
                 train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Dis_loss: {:.6f} Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Kl_loss: {:.6f} Feat_loss: {:.6f} Gen_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
                     epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Dis_loss.val, Adv_loss.val, Att_loss.val, Id_loss.val, Rec_con_loss.val, Rec_sec_loss.val, Kl_loss.val, Feat_loss.val, Gen_loss.val, Sumlosses.val, batch_time.val
+                )
+                """
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Dis_loss: {:.6f} Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Feat_loss: {:.6f} Gen_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Dis_loss.val, Adv_loss.val, Att_loss.val, Id_loss.val, Rec_con_loss.val, Rec_sec_loss.val, Feat_loss.val, Gen_loss.val, Sumlosses.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
                 log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
@@ -386,7 +397,7 @@ class Train:
         Id_loss = AverageMeter()
         Rec_con_loss = AverageMeter()
         Rec_sec_loss = AverageMeter()
-        Kl_loss = AverageMeter()
+        #Kl_loss = AverageMeter()
         Feat_loss = AverageMeter()
         
         Val_loss = AverageMeter()        
@@ -412,19 +423,20 @@ class Train:
 
             loss_att = self.att_loss(data_dict['container_att'], data_dict['cover_att'])
             loss_id = self.id_loss(data_dict['fused_feature'], data_dict['container_id'])
-            loss_con_rec = self.rec_loss(data_dict['container'], data_dict['cover'])
-            loss_sec_rec = self.rec_loss(data_dict['secret_rec'], data_dict['secret'])
-            loss_kl = self.kl_loss(data_dict['secret_mu'], data_dict['secret_logvar'])
+            loss_con_rec = self.rec_con_loss(data_dict['container'], data_dict['cover'])
+            loss_sec_rec = self.rec_sec_loss(data_dict['secret_rec'], data_dict['secret'])
+            #loss_kl = self.kl_loss(data_dict['secret_mu'], data_dict['secret_logvar'])
             loss_feat = self.feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature'])
 
-            sum_val_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*(loss_con_rec + loss_sec_rec + loss_kl) + self.args.feat_lambda*loss_feat
+            #sum_val_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_con_lambda*(loss_sec_rec + loss_kl) + self.args.feat_lambda*loss_feat
+            sum_val_loss = self.args.adv_lambda*loss_adv + self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*loss_sec_rec + self.args.feat_lambda*loss_feat
 
             Adv_loss.update(loss_adv.item(), self.args.train_bs)
             Att_loss.update(loss_att.item(), self.args.train_bs)
             Id_loss.update(loss_id.item(), self.args.train_bs)
             Rec_con_loss.update(loss_con_rec.item(), self.args.train_bs)
             Rec_sec_loss.update(loss_sec_rec.item(), self.args.train_bs)
-            Kl_loss.update(loss_kl.item(), self.args.train_bs)
+            #Kl_loss.update(loss_kl.item(), self.args.train_bs)
             Feat_loss.update(loss_feat.item(), self.args.train_bs)
             
             Val_loss.update(sum_val_loss.item(), self.args.train_bs)
@@ -441,14 +453,19 @@ class Train:
             'IdLoss': Id_loss.avg,
             'RecConLoss': Rec_con_loss.avg,
             'RecSecLoss': Rec_sec_loss.avg,
-            'KlLoss': Kl_loss.avg,
+            #'KlLoss': Kl_loss.avg,
             'FeatLoss': Feat_loss.avg,
             'SumValidateLosses': Val_loss.avg
         }
         log_metrics(writer=self.writer, data_dict=validate_data_dict, step=epoch+1, prefix='validate')
 
+        """
         val_log = "Validation[{:d}] Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Kl_loss: {:.6f} Feat_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
             epoch+1, Adv_loss.avg, Att_loss.avg, Id_loss.avg, Rec_con_loss.avg, Rec_sec_loss.avg, Kl_loss.avg, Feat_loss.avg, Val_loss.avg, batch_time.avg
+        )
+        """
+        val_log = "Validation[{:d}] Adv_loss: {:.6f} Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Feat_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch+1, Adv_loss.avg, Att_loss.avg, Id_loss.avg, Rec_con_loss.avg, Rec_sec_loss.avg, Feat_loss.avg, Val_loss.avg, batch_time.avg
         )
         print_log(info=val_log, log_path=self.args.logpath, console=True)
 

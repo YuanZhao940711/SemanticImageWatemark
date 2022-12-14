@@ -13,7 +13,8 @@ class Fuser(nn.Module):
             nn.Linear(in_features=latent_dim*4, out_features=latent_dim*2),
             nn.LeakyReLU(),
             nn.Linear(in_features=latent_dim*2, out_features=latent_dim),
-            #nn.Sigmoid()
+            #nn.Sigmoid(),
+            #nn.Tanh()
         )
         self.output_layer = nn.Sequential(
             nn.BatchNorm1d(num_features=latent_dim)

@@ -63,12 +63,18 @@ class ImageDataset(Dataset):
     def __len__(self):
         return len(self.image_paths)
     def __getitem__(self, index):
+        image_path = self.image_paths[index]
+
         try:
-            image_path = self.image_paths[index]
-            image = Image.open(image_path).convert("RGB")
-            return self.transforms(image)
+            #image_path = self.image_paths[index]
+            #image = Image.open(image_path).convert("RGB")
+            #return self.transforms(image)
+            image = Image.open(image_path).convert('RGB')
+            image = self.transforms(image)
         except:
             self.__getitem__(index + 1)
+
+        return image
 
 
 

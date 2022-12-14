@@ -15,7 +15,7 @@ class TrainOptions:
         self.parser.add_argument('--secret_bs', default=8, type=int)
         self.parser.add_argument('--max_epoch', default=15, type=int)
         self.parser.add_argument('--display_num', default=10, type=int)
-        self.parser.add_argument('--num_workers', default=2, type=int)
+        self.parser.add_argument('--num_workers', default=0, type=int)
         self.parser.add_argument('--max_train_iters', default=2500, type=int)
         self.parser.add_argument('--max_val_iters', default=50, type=int)
 
@@ -46,7 +46,8 @@ class TrainOptions:
         self.parser.add_argument('--feat_lambda', default=1.0, type=float)
 
         self.parser.add_argument('--idloss_mode', default='Cos', type=str)
-        self.parser.add_argument('--recloss_mode', default='lpips', type=str)
+        self.parser.add_argument('--recconloss_mode', default='lpips', type=str)
+        self.parser.add_argument('--recsecloss_mode', default='l2', type=str)
         self.parser.add_argument('--featloss_mode', default='MAE', type=str)
         self.parser.add_argument('--facenet_mode', default='arcface', type=str)
 

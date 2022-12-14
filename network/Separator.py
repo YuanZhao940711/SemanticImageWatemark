@@ -13,12 +13,19 @@ class Separator(nn.Module):
             nn.Linear(in_features=latent_dim*2, out_features=latent_dim*2),
             nn.LeakyReLU(),
             nn.Linear(in_features=latent_dim*2, out_features=latent_dim),
-            nn.Sigmoid()
+            #nn.Sigmoid(),
+            #nn.Tanh()
+        )
+
+        self.output_layer = nn.Sequential(
+            nn.BatchNorm1d(num_features=latent_dim)
         )
 
 
     def forward(self, feature_fused):
 
         feature_separated = self.separator(feature_fused)
+
+        feature_separated = self.output_layer(feature_separated)
 
         return feature_separated
