@@ -122,6 +122,43 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
 
 
 
+def visualize_vae_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, step=None):
+    if prefix == 'train':
+        ResultImgName = os.path.join(save_dir, 'ResultPics_epoch{:05d}_iter{:05d}_step{:05d}.png'.format(epoch, iter, step))
+    elif prefix == 'validation':
+        ResultImgName = os.path.join(save_dir, 'ResultPics_epoch{:05d}.png'.format(epoch))
+    elif prefix == 'best':
+        ResultImgName = os.path.join(save_dir, 'BestResultPics.png')
+    else:
+        raise ValueError('[*]Invalid result picture save prefix. Must be one of train, validation or best')
+
+    rec_gap = vis_dict['image_ori'] - vis_dict['image_rec']
+    rec_gap = (rec_gap*10 + 0.5).clamp_(0.0, 1.0)
+
+    fig = plt.figure(figsize=(12, 4*dis_num))
+    gs = fig.add_gridspec(nrows=dis_num, ncols=3)
+    for img_idx in range(dis_num):
+        fig.add_subplot(gs[img_idx, 0])
+        cover = tensor2img(vis_dict['image_ori'][img_idx])
+        plt.imshow(cover)
+        plt.title('Image original')
+
+        fig.add_subplot(gs[img_idx, 1])
+        container = tensor2img(vis_dict['image_rec'][img_idx]) 
+        plt.imshow(container)
+        plt.title('Image reconstructed')
+
+        fig.add_subplot(gs[img_idx, 2])
+        covgap_img = tensor2img(rec_gap[img_idx])
+        plt.imshow(covgap_img)
+        plt.title('Image Rec Gap')
+
+    plt.tight_layout()
+    fig.savefig(ResultImgName)
+    plt.close(fig)
+
+
+
 def visualize_correlation(seq, id, img, save_path):
     seq_len = len(seq)
     

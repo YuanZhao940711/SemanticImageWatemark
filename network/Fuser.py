@@ -9,9 +9,9 @@ class Fuser(nn.Module):
 
         self.fuser = nn.Sequential(
             nn.Linear(in_features=latent_dim*2, out_features=latent_dim*4),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(inplace=True),
             nn.Linear(in_features=latent_dim*4, out_features=latent_dim*2),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(inplace=True),
             nn.Linear(in_features=latent_dim*2, out_features=latent_dim),
             #nn.Sigmoid(),
             #nn.Tanh()
