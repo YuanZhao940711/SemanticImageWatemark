@@ -159,16 +159,30 @@ class Train:
 
 
     def forward_pass(self, cover, secret):
-        cover_att = self.attencoder(Xt=cover)
-        
-        cover_id = self.facenet(alignment(cover))
-        cover_id_norm = l2_norm(cover_id) 
+        cover = cover.to(self.args.device)
+        secret = secret.to(self.args.device) # 1*256*256*3
 
-        secret_feature = self.encoder(secret)
+        cover_att = self.attencoder(Xt=cover)
+
+        cover_id = self.facenet(alignment(cover))
+        cover_id_norm = l2_norm(cover_id)
+
+        cover_id_fuse = cover_id_norm[:cover_id_norm.shape[0]//2]
+        cover_id_ori = cover_id_norm[cover_id_fuse.shape[0]:]
+
+        #secret_input = secret.repeat(cover_id_fuse.shape[0], 1, 1, 1)
+        secret_feature = self.encoder(secret) # 1*256*256*3 -> 1*512
         secret_feature_norm = l2_norm(secret_feature)
 
-        fused_feature = self.fuser(cover_id_norm, secret_feature_norm)
-        fused_feature = l2_norm(fused_feature)
+        secret_feature_norm = secret_feature_norm.repeat(cover_id_fuse.shape[0], 1)
+
+        secret_feature_null_before = torch.zeros(cover_id_norm.shape[0]-cover_id_fuse.shape[0], secret_feature_norm.shape[1]).to(self.args.device)
+        secret_feature_ori = torch.cat((secret_feature_norm, secret_feature_null_before), dim=0)
+
+        covsec_feature = self.fuser(cover_id_fuse, secret_feature_norm)
+        covsec_feature = l2_norm(covsec_feature)
+
+        fused_feature = torch.cat((covsec_feature, cover_id_ori), dim=0)
 
         container = self.aadblocks(inputs=(cover_att, fused_feature))
 
@@ -177,19 +191,28 @@ class Train:
 
         container_att = self.attencoder(Xt=container)
 
-        secret_feature_rec = self.separator(container_id_norm)
-        secret_feature_rec = l2_norm(secret_feature_rec)
+        container_id_fuse = container_id_norm[:cover_id_norm.shape[0]//2]
+
+        secret_feature_ext = self.separator(container_id_fuse)
+        secret_feature_ext = l2_norm(secret_feature_ext)
+
+        secret_feature_null_after = torch.zeros(cover_id_norm.shape[0]-cover_id_fuse.shape[0], secret_feature_ext.shape[1]).to(self.args.device)
+        secret_feature_rec = torch.cat((secret_feature_ext, secret_feature_null_after), dim=0)
 
         secret_rec = self.decoder(secret_feature_rec)
-        
+
+        secret_input = secret.repeat(cover_id_fuse.shape[0], 1, 1, 1)
+        secret_null = torch.zeros(cover_id_norm.shape[0]-cover_id_fuse.shape[0], secret.shape[1], secret.shape[2], secret.shape[3]).to(self.args.device)
+        secret_batch = torch.cat((secret_input, secret_null), dim=0)
+
         ##### Collect results ##### 
         data_dict = {
             'cover': cover,
             'container': container,
-            'secret': secret,
+            'secret': secret_batch,
             'secret_rec': secret_rec,
-            'cover_id': cover_id,
-            'secret_feature': secret_feature_norm,
+            'cover_id': cover_id_norm,
+            'secret_feature': secret_feature_ori,
             'fused_feature': fused_feature,
             'container_id': container_id_norm,
             'secret_feature_rec': secret_feature_rec,
@@ -220,8 +243,8 @@ class Train:
                 secret_iterator = iter(secret_loader)
                 secret_batch = next(secret_iterator)
 
-            cover_batch = cover_batch.to(self.args.device)
-            secret_batch = secret_batch.to(self.args.device)
+            #cover_batch = cover_batch.to(self.args.device)
+            #secret_batch = secret_batch.to(self.args.device)
 
             ##### Training #####
             self.facenet.eval()

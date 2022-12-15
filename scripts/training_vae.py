@@ -61,6 +61,7 @@ class Train:
 
         ##### Initialize loss functions #####
         self.rec_loss = loss_functions.RecSecLoss(self.args.recsecloss_mode, self.args.device)
+        self.kl_loss = loss_functions.KlLoss().to(self.args.device)
 
         ##### Initialize data loaders ##### 
         train_transforms = transforms.Compose([
@@ -96,7 +97,7 @@ class Train:
 
 
     def forward_pass(self, image_ori):
-        secret_feature = self.encoder(image_ori)
+        secret_feature, secret_mu, secret_logvar = self.encoder(image_ori)
         secret_feature_norm = l2_norm(secret_feature)
 
         image_rec = self.decoder(secret_feature_norm)
@@ -104,16 +105,18 @@ class Train:
         ##### Collect results ##### 
         data_dict = {
             'image_ori': image_ori,
-            'image_rec': image_rec
+            'image_rec': image_rec,
+            'secret_mu': secret_mu,
+            'secret_logvar': secret_logvar,
         }
 
         return data_dict
 
 
     def training(self, epoch, train_loader):
-        batch_time = AverageMeter()
-        Train_loss = AverageMeter()
-        
+        batch_time = AverageMeter()        
+        Rec_loss = AverageMeter()
+        Kl_loss = AverageMeter()
         Train_loss = AverageMeter()
 
         start_time = time.time()
@@ -128,7 +131,10 @@ class Train:
 
             data_dict = self.forward_pass(image_batch)
 
-            loss_train = self.rec_loss(data_dict['image_ori'], data_dict['image_rec'])
+            loss_rec = self.rec_loss(data_dict['image_ori'], data_dict['image_rec'])
+            loss_kl = self.kl_loss(data_dict['secret_mu'], data_dict['secret_logvar'])
+
+            loss_train = loss_rec + loss_kl
 
             self.opt_encoder.zero_grad()
             self.opt_decoder.zero_grad()
@@ -139,19 +145,23 @@ class Train:
             self.opt_decoder.step()
 
             ##### Log losses and computation time #####
+            Rec_loss.update(loss_rec.item(), self.args.train_bs)
+            Kl_loss.update(loss_kl.item(), self.args.train_bs)
             Train_loss.update(loss_train.item(), self.args.train_bs)
 
             batch_time.update(time.time()-start_time)
             start_time = time.time()
 
             train_data_dict = {
-                'Train_loss': Train_loss.avg,
+                'Rec_loss': Rec_loss.avg,
+                'Kl_loss': Kl_loss.avg,
+                'Train_losses': Train_loss.avg,
             }
 
             ##### Board and log losses, and visualize results #####
             if (self.global_train_steps+1) % self.args.board_interval == 0:
-                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Train_loss: {:.6f} BatchTime: {:.4f}".format(
-                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Train_loss.val, batch_time.val
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Rec_loss: {:.6f} Kl_loss: {:.6f} Train_loss: {:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Rec_loss.val, Kl_loss.val, Train_loss.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
                 log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
@@ -170,7 +180,8 @@ class Train:
         self.decoder.eval()
 
         batch_time = AverageMeter()
-        
+        Rec_loss = AverageMeter()
+        Kl_loss = AverageMeter()
         Val_losses = AverageMeter()        
 
         start_time = time.time()
@@ -182,8 +193,13 @@ class Train:
             data_dict = self.forward_pass(image_batch)
 
             # Calculate losses
-            loss_val = self.rec_loss(data_dict['image_ori'], data_dict['image_rec'])
+            loss_rec = self.rec_loss(data_dict['image_ori'], data_dict['image_rec'])
+            loss_kl = self.kl_loss(data_dict['secret_mu'], data_dict['secret_logvar'])
+
+            loss_val = loss_rec + loss_kl
             
+            Rec_loss.update(loss_rec.item(), self.args.train_bs)
+            Kl_loss.update(loss_kl.item(), self.args.train_bs)
             Val_losses.update(loss_val.item(), self.args.train_bs)
 
             batch_time.update(time.time() - start_time)
@@ -193,12 +209,14 @@ class Train:
                 break
 
         validate_data_dict = {
-            'SumValidateLosses': Val_losses.avg
+            'Rec_loss': Rec_loss.avg,
+            'Kl_loss': Kl_loss.avg,
+            'Val_Losses': Val_losses.avg
         }
         log_metrics(writer=self.writer, data_dict=validate_data_dict, step=epoch+1, prefix='validate')
 
-        val_log = "Validation[{:d}] Val_losses: {:.6f} BatchTime: {:.4f}".format(
-            epoch+1, Val_losses.avg, batch_time.avg
+        val_log = "Validation[{:d}] Rec_loss: {:.6f} Kl_loss: {:.6f} Val_losses: {:.6f} BatchTime: {:.4f}".format(
+            epoch+1, Rec_loss.avg, Kl_loss.avg, Val_losses.avg, batch_time.avg
         )
         print_log(info=val_log, log_path=self.args.logpath, console=True)
 
