@@ -84,10 +84,10 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
         plt.title('Secret Gap')
 
         fig.add_subplot(gs[img_idx, 6])
-        secret_feature = vis_dict['secret_feature'][img_idx].cpu().detach().numpy()
+        secret_feature = vis_dict['secret_feature_ori'][img_idx].cpu().detach().numpy()
         plt.plot(secret_feature)
         plt.grid()
-        plt.title('Secret Feature')
+        plt.title('Secret Feature Ori')
 
         fig.add_subplot(gs[img_idx, 7])
         cover_id = vis_dict['cover_id'][img_idx].cpu().detach().numpy()
@@ -114,7 +114,7 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
         plt.plot(secret_feature_rec)
         plt.grid()
         feat_similarity = 1 - spatial.distance.cosine(secret_feature, secret_feature_rec)
-        plt.title('Secret RecFeat FeatSim:{:.2f}'.format(feat_similarity))
+        plt.title('Secret Feat Rec FeatSim:{:.2f}'.format(feat_similarity))
 
     plt.tight_layout()
     fig.savefig(ResultImgName)

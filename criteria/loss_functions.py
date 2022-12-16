@@ -159,14 +159,14 @@ class RecSecLoss(nn.Module):
 
 
 class FeatLoss(nn.Module):
-    def __init__(self, loss_mode):
+    def __init__(self, loss_mode, device):
         super(FeatLoss, self).__init__()
 
         if loss_mode == 'MSE':
-            self.criterion = nn.MSELoss()
+            self.criterion = nn.MSELoss().to(device)
             self.mode = loss_mode
         elif loss_mode == 'MAE':
-            self.criterion = nn.L1Loss()
+            self.criterion = nn.L1Loss().to(device)
             self.mode = loss_mode
         elif loss_mode == 'Cos':
             self.mode = loss_mode
