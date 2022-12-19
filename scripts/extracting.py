@@ -18,7 +18,7 @@ from network.Decoder import Decoder
 from face_modules.model import Backbone
 
 from utils.dataset import ImageDataset
-from utils.common import tensor2img, alignment, l2_norm
+from utils.common import tensor2img, alignment
 
 
 
@@ -55,10 +55,13 @@ class Extract:
         # Separator
         self.separator = Separator(latent_dim=self.args.latent_dim).to(self.args.device)
         self.separator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Separator_best.pth'), map_location=self.args.device), strict=True)
-        
         # Decoder
         self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
         self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
+
+        self.facenet.eval()
+        self.separator.eval()
+        self.decoder.eval()        
         
         ##### Initialize data loaders ##### 
         container_transforms = transforms.Compose([
@@ -86,10 +89,10 @@ class Extract:
             container_batch = container_batch.to(self.args.device)
 
             container_id = self.facenet(alignment(container_batch))
-            container_id_norm = l2_norm(container_id)
+            #container_id_norm = l2_norm(container_id)
 
-            secret_feature_rec = self.separator(container_id_norm)
-            secret_feature_rec = l2_norm(secret_feature_rec)
+            secret_feature_rec = self.separator(container_id)
+            #secret_feature_rec = l2_norm(secret_feature_rec)
 
             secret_rec_batch = self.decoder(secret_feature_rec)
 

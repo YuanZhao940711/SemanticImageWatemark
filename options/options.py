@@ -22,13 +22,7 @@ class TrainOptions:
         self.parser.add_argument('--latent_dim', default=512, type=int)
         
         self.parser.add_argument('--facenet_dir', default='./saved_models', type=str)
-        self.parser.add_argument('--aadblocks_dir', default='./saved_models', type=str)
-        self.parser.add_argument('--attencoder_dir', default='./saved_models', type=str)
-        self.parser.add_argument('--discriminator_dir', default='./saved_models', type=str)
-        self.parser.add_argument('--fuser_dir', default='./saved_models', type=str)
-        self.parser.add_argument('--separator_dir', default='./saved_models', type=str)
-        self.parser.add_argument('--encoder_dir', default='./saved_models', type=str)
-        self.parser.add_argument('--decoder_dir', default='./saved_models', type=str)
+        self.parser.add_argument('--checkpoint_dir', default='./best_models', type=str)
 
         self.parser.add_argument('--lr_aad', default=1e-4, type=float)
         self.parser.add_argument('--lr_att', default=1e-4, type=float)

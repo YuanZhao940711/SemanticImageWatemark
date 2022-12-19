@@ -45,20 +45,6 @@ class Train:
         print_log('[*]Running on device: {}'.format(self.args.device), self.args.logpath)
 
         ##### Initialize networks and load pretrained models #####
-        # AAD Generator
-        self.aadblocks = AADGenerator(c_id=512).to(self.args.device)
-        try:
-            self.aadblocks.load_state_dict(torch.load(os.path.join(self.args.aadblocks_dir, 'AAD_best.pth'), map_location=self.args.device), strict=True)
-        except:
-            print_log("[*]Training AAD Generator from scratch", self.args.logpath)
-        
-        # Att Encoder
-        self.attencoder = MLAttrEncoder().to(self.args.device)
-        try:
-            self.attencoder.load_state_dict(torch.load(os.path.join(self.args.attencoder_dir, 'ATT_best.pth'), map_location=self.args.device), strict=True)
-        except:
-            print_log("[*]Training Attributes Encoder from scratch", self.args.logpath)
-
         # Id Encoder
         print_log("[*]Loading Face Recognition Model {} from {}".format(self.args.facenet_mode, self.args.facenet_dir), self.args.logpath)
         if self.args.facenet_mode == 'arcface':
@@ -70,31 +56,45 @@ class Train:
         else:
             raise ValueError("Invalid Face Recognition Model. Must be one of [arcface, CurricularFace]")
         
+        # AAD Generator
+        self.aadblocks = AADGenerator(c_id=512).to(self.args.device)
+        try:
+            self.aadblocks.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'AAD_best.pth'), map_location=self.args.device), strict=True)
+        except:
+            print_log("[*]Training AAD Generator from scratch", self.args.logpath)
+        
+        # Att Encoder
+        self.attencoder = MLAttrEncoder().to(self.args.device)
+        try:
+            self.attencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'ATT_best.pth'), map_location=self.args.device), strict=True)
+        except:
+            print_log("[*]Training Attributes Encoder from scratch", self.args.logpath)
+        
         # Fuser
         self.fuser = Fuser(latent_dim=self.args.latent_dim).to(self.args.device)
         try:
-            self.fuser.load_state_dict(torch.load(os.path.join(self.args.fuser_dir, 'Fuser_best.pth'), map_location=self.args.device), strict=True)
+            self.fuser.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Fuser_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Fuser from scratch", self.args.logpath)
 
         # Separator
         self.separator = Separator(latent_dim=self.args.latent_dim).to(self.args.device)
         try:
-            self.separator.load_state_dict(torch.load(os.path.join(self.args.separator_dir, 'Separator_best.pth'), map_location=self.args.device), strict=True)
+            self.separator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Separator_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Separator from scratch", self.args.logpath)
         
         # Encoder
         self.encoder = Encoder(in_channels=3, latent_dim=self.args.latent_dim).to(self.args.device)
         try:
-            self.encoder.load_state_dict(torch.load(os.path.join(self.args.encoder_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
+            self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Encoder from scratch", self.args.logpath)
 
         # Decoder
         self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
         try:
-            self.decoder.load_state_dict(torch.load(os.path.join(self.args.decoder_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
+            self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Decoder from scratch", self.args.logpath)
 
@@ -160,60 +160,44 @@ class Train:
 
     def forward_pass(self, cover, secret):
         cover = cover.to(self.args.device)
-        secret = secret.to(self.args.device) # 1*256*256*3
 
         cover_att = self.attencoder(Xt=cover)
-
         cover_id = self.facenet(alignment(cover))
-        cover_id_norm = l2_norm(cover_id)
 
-        cover_id_fuse = cover_id_norm[:cover_id_norm.shape[0]//2]
-        cover_id_ori = cover_id_norm[cover_id_fuse.shape[0]:]
+        secret = secret.to(self.args.device)
+        secret_ori = secret.repeat(cover_id.shape[0]//2, 1, 1, 1)
+        secret_null = torch.zeros(cover.shape[0] - secret_ori.shape[0], secret.shape[1], secret.shape[2], secret.shape[3]).to(self.args.device)
+        secret_input = torch.cat((secret_ori, secret_null), dim=0)
 
         secret_feature = self.encoder(secret) # 1*256*256*3 -> 1*512
-        secret_feature_norm = l2_norm(secret_feature)
+        secret_feature_ori = secret_feature.repeat(cover_id.shape[0]//2, 1) 
+        secret_feature_null = torch.zeros(cover.shape[0] - secret_feature_ori.shape[0], secret_feature.shape[1]).to(self.args.device)
+        secret_feature_input = torch.cat((secret_feature_ori, secret_feature_null), dim=0)
 
-        secret_feature_norm = secret_feature_norm.repeat(cover_id_fuse.shape[0], 1)
+        fused_feature = self.fuser(cover_id[:cover_id.shape[0]//2], secret_feature_ori)        
 
-        secret_feature_null = torch.zeros(cover_id_norm.shape[0]-cover_id_fuse.shape[0], secret_feature_norm.shape[1]).to(self.args.device)
-        secret_feature_ori = torch.cat((secret_feature_norm, secret_feature_null), dim=0)
+        input_feature = torch.cat((fused_feature, cover_id[cover_id.shape[0]//2:]), dim=0)
+        input_feature_norm = l2_norm(input_feature)
 
-        covsec_feature = self.fuser(cover_id_fuse, secret_feature_norm)
-        covsec_feature = l2_norm(covsec_feature)
-
-        fused_feature = torch.cat((covsec_feature, cover_id_ori), dim=0)
-
-        container = self.aadblocks(inputs=(cover_att, fused_feature))
+        container = self.aadblocks(inputs=(cover_att, input_feature_norm))
 
         container_id = self.facenet(alignment(container))
-        container_id_norm = l2_norm(container_id)
-
         container_att = self.attencoder(Xt=container)
 
-        container_id_fuse = container_id_norm[:cover_id_norm.shape[0]//2]
-
-        secret_feature_ext = self.separator(container_id_fuse)
-        secret_feature_ext = l2_norm(secret_feature_ext)
-
-        secret_feature_null = torch.zeros(cover_id_norm.shape[0]-cover_id_fuse.shape[0], secret_feature_ext.shape[1]).to(self.args.device)
-        secret_feature_rec = torch.cat((secret_feature_ext, secret_feature_null), dim=0)
+        secret_feature_rec = self.separator(container_id)
 
         secret_rec = self.decoder(secret_feature_rec)
-
-        secret_input = secret.repeat(cover_id_fuse.shape[0], 1, 1, 1)
-        secret_null = torch.zeros(cover_id_norm.shape[0]-cover_id_fuse.shape[0], secret.shape[1], secret.shape[2], secret.shape[3]).to(self.args.device)
-        secret_batch = torch.cat((secret_input, secret_null), dim=0)
 
         ##### Collect results ##### 
         data_dict = {
             'cover': cover,
             'container': container,
-            'secret': secret_batch,
+            'secret_input': secret_input,
             'secret_rec': secret_rec,
-            'cover_id': cover_id_norm,
-            'fused_feature': fused_feature,
-            'container_id': container_id_norm,
-            'secret_feature_ori': secret_feature_ori,
+            'cover_id': cover_id,
+            'input_feature': input_feature,
+            'container_id': container_id,
+            'secret_feature_input': secret_feature_input,
             'secret_feature_rec': secret_feature_rec,
             'cover_att': cover_att,
             'container_att': container_att,
@@ -242,9 +226,6 @@ class Train:
                 secret_iterator = iter(secret_loader)
                 secret_batch = next(secret_iterator)
 
-            #cover_batch = cover_batch.to(self.args.device)
-            #secret_batch = secret_batch.to(self.args.device)
-
             ##### Training #####
             self.facenet.eval()
 
@@ -259,10 +240,10 @@ class Train:
 
             loss_att = self.att_loss(data_dict['container_att'], data_dict['cover_att'])
             # 可以给 Id 设置一个比例，一部分约束 fused feature 和 container id，另外一部分约束 cover id 和 container id
-            loss_id = self.id_loss(data_dict['fused_feature'], data_dict['container_id'])
+            loss_id = self.id_loss(data_dict['input_feature'], data_dict['container_id'])
             loss_con_rec = self.rec_con_loss(data_dict['container'], data_dict['cover'])
-            loss_sec_rec = self.rec_sec_loss(data_dict['secret_rec'], data_dict['secret'])
-            loss_feat = self.feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_ori'])
+            loss_sec_rec = self.rec_sec_loss(data_dict['secret_rec'], data_dict['secret_input'])
+            loss_feat = self.feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_input'])
 
             Sum_train_losses = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*loss_sec_rec + self.args.feat_lambda*loss_feat
 
@@ -348,18 +329,15 @@ class Train:
             except StopIteration:
                 secret_iterator = iter(secret_loader)
                 secret_batch = next(secret_iterator)
-            
-            cover_batch = cover_batch.to(self.args.device)
-            secret_batch = secret_batch.to(self.args.device)
 
             data_dict = self.forward_pass(cover_batch, secret_batch)
 
             # Calculate losses
             loss_att = self.att_loss(data_dict['container_att'], data_dict['cover_att'])
-            loss_id = self.id_loss(data_dict['fused_feature'], data_dict['container_id'])
+            loss_id = self.id_loss(data_dict['input_feature'], data_dict['container_id'])
             loss_con_rec = self.rec_con_loss(data_dict['container'], data_dict['cover'])
-            loss_sec_rec = self.rec_sec_loss(data_dict['secret_rec'], data_dict['secret'])
-            loss_feat = self.feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature'])
+            loss_sec_rec = self.rec_sec_loss(data_dict['secret_rec'], data_dict['secret_input'])
+            loss_feat = self.feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_input'])
 
             sum_val_loss = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*loss_sec_rec + self.args.feat_lambda*loss_feat
 
@@ -439,7 +417,7 @@ class Train:
             torch.save(state['encoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Encoder_best.pth'))
             torch.save(state['decoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Decoder_best.pth'))
         else:
-            torch.save(state, os.path.join(self.args.checkpoints_dir, 'checkpoint.pth.tar'))
+            torch.save(state, os.path.join(self.args.checkpoint_savedir, 'checkpoint.pth.tar'))
 
 
 
@@ -457,8 +435,8 @@ def main():
     args.valpics_dir = os.path.join(args.output_dir, 'ValidatePics')
     os.makedirs(args.valpics_dir, exist_ok=True)
     
-    args.checkpoints_dir = os.path.join(args.output_dir, 'CheckPoints')
-    os.makedirs(args.checkpoints_dir, exist_ok=True)
+    args.checkpoint_savedir = os.path.join(args.output_dir, 'CheckPoints')
+    os.makedirs(args.checkpoint_savedir, exist_ok=True)
     
     args.bestresults_dir = os.path.join(args.output_dir, 'BestResults')
     os.makedirs(args.bestresults_dir, exist_ok=True)
