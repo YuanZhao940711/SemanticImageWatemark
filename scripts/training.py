@@ -15,7 +15,8 @@ from torch.utils.tensorboard import SummaryWriter
 from options.options import TrainOptions
 
 from network.AAD import AADGenerator
-from network.MAE import MLAttrEncoder
+#from network.MAE import MLAttrEncoder
+from network.DisentanglementEncoder import DisentanglementEncoder
 from network.Fuser import Fuser
 from network.Separator import Separator
 from network.Encoder import Encoder
@@ -25,7 +26,8 @@ from criteria import loss_functions
 from face_modules.model import Backbone
 
 from utils.dataset import ImageDataset
-from utils.common import visualize_results, print_log, alignment, l2_norm, log_metrics, AverageMeter
+#from utils.common import visualize_results, print_log, alignment, l2_norm, log_metrics, AverageMeter
+from utils.common import visualize_results, print_log, l2_norm, log_metrics, AverageMeter
 
 
 
@@ -45,6 +47,7 @@ class Train:
         print_log('[*]Running on device: {}'.format(self.args.device), self.args.logpath)
 
         ##### Initialize networks and load pretrained models #####
+        """
         # Id Encoder
         print_log("[*]Loading Face Recognition Model {} from {}".format(self.args.facenet_mode, self.args.facenet_dir), self.args.logpath)
         if self.args.facenet_mode == 'arcface':
@@ -55,6 +58,13 @@ class Train:
             self.facenet.load_state_dict(torch.load(os.path.join(self.args.facenet_dir, 'CurricularFace_Backbone.pth'), map_location=self.args.device), strict=True)
         else:
             raise ValueError("Invalid Face Recognition Model. Must be one of [arcface, CurricularFace]")
+        """
+        # Disentanglement Encoder
+        self.disentangler = DisentanglementEncoder().to(self.args.device)
+        try:
+            self.attencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Dis_best.pth'), map_location=self.args.device), strict=True)
+        except:
+            print_log("[*]Training Disentangle Encoder from scratch", self.args.logpath)
         
         # AAD Generator
         self.aadblocks = AADGenerator(c_id=512).to(self.args.device)
@@ -63,12 +73,14 @@ class Train:
         except:
             print_log("[*]Training AAD Generator from scratch", self.args.logpath)
         
+        """
         # Att Encoder
         self.attencoder = MLAttrEncoder().to(self.args.device)
         try:
             self.attencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'ATT_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Attributes Encoder from scratch", self.args.logpath)
+        """
         
         # Fuser
         self.fuser = Fuser(latent_dim=self.args.latent_dim).to(self.args.device)
@@ -100,7 +112,8 @@ class Train:
 
         ##### Initialize optimizers #####
         self.opt_aad = optim.Adam(self.aadblocks.parameters(), lr=self.args.lr_aad, betas=(0, 0.5))
-        self.opt_att = optim.Adam(self.attencoder.parameters(), lr=self.args.lr_att, betas=(0, 0.5))
+        #self.opt_att = optim.Adam(self.attencoder.parameters(), lr=self.args.lr_att, betas=(0, 0.5))
+        self.opt_dis = optim.Adam(self.disentangler.parameters(), lr=self.args.lr_att, betas=(0, 0.5))
         self.opt_fuser = optim.Adam(self.fuser.parameters(), lr=self.args.lr_fuser, betas=(0, 0.5))
         self.opt_separator = optim.Adam(self.separator.parameters(), lr=self.args.lr_separator, betas=(0, 0.5))
         self.opt_encoder = optim.Adam(self.encoder.parameters(), lr=self.args.lr_encoder, betas=(0, 0.5))
@@ -161,8 +174,11 @@ class Train:
     def forward_pass(self, cover, secret):
         cover = cover.to(self.args.device)
 
+        """
         cover_att = self.attencoder(Xt=cover)
         cover_id = self.facenet(alignment(cover))
+        """
+        cover_id, cover_att = self.disentangler(cover)
 
         secret = secret.to(self.args.device)
         secret_ori = secret.repeat(cover_id.shape[0]//2, 1, 1, 1)
@@ -181,8 +197,11 @@ class Train:
 
         container = self.aadblocks(inputs=(cover_att, input_feature_norm))
 
+        """
         container_id = self.facenet(alignment(container))
         container_att = self.attencoder(Xt=container)
+        """
+        container_id, container_att = self.disentangler(container)
 
         secret_feature_rec = self.separator(container_id)
 
@@ -227,10 +246,8 @@ class Train:
                 secret_batch = next(secret_iterator)
 
             ##### Training #####
-            self.facenet.eval()
-
             self.aadblocks.train()
-            self.attencoder.train()
+            self.disentangler.train()
             self.fuser.train()
             self.separator.train()
             self.encoder.train()
@@ -248,7 +265,7 @@ class Train:
             Sum_train_losses = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*loss_sec_rec + self.args.feat_lambda*loss_feat
 
             self.opt_aad.zero_grad()
-            self.opt_att.zero_grad()
+            self.opt_dis.zero_grad()
             self.opt_fuser.zero_grad()
             self.opt_separator.zero_grad()
             self.opt_encoder.zero_grad()
@@ -257,7 +274,7 @@ class Train:
             Sum_train_losses.backward()
 
             self.opt_aad.step()
-            self.opt_att.step()
+            self.opt_dis.step()
             self.opt_fuser.step()
             self.opt_separator.step()
             self.opt_encoder.step()
@@ -302,9 +319,8 @@ class Train:
 
 
     def validation(self, epoch, cover_loader, secret_loader):
-        self.facenet.eval()
         self.aadblocks.eval()
-        self.attencoder.eval()
+        self.disentangler.eval()
         self.fuser.eval()
         self.separator.eval()
         self.encoder.eval()
@@ -390,7 +406,7 @@ class Train:
                 stat_dict = {
                     'epoch': epoch + 1,
                     'aad_state_dict': self.aadblocks.state_dict(),
-                    'att_state_dict': self.attencoder.state_dict(),
+                    'dis_state_dict': self.disentangler.state_dict(),
                     'fuser_state_dict': self.fuser.state_dict(),
                     'separator_state_dict': self.separator.state_dict(),
                     'encoder_state_dict': self.encoder.state_dict(),
@@ -411,7 +427,7 @@ class Train:
     def save_checkpoint(self, state, is_best):
         if is_best:
             torch.save(state['aad_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'AAD_best.pth'))
-            torch.save(state['att_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'ATT_best.pth'))
+            torch.save(state['dis_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'DisEnc_best.pth'))
             torch.save(state['fuser_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Fuser_best.pth'))
             torch.save(state['separator_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Separator_best.pth'))
             torch.save(state['encoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Encoder_best.pth'))
