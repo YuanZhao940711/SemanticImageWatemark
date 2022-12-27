@@ -22,7 +22,6 @@ class Decoder(nn.Module):
             modules.append(
                 nn.Sequential(
                     nn.ConvTranspose2d(in_channels=hidden_dims[i+1], out_channels=hidden_dims[i+2], kernel_size=3, stride=2, padding=1, output_padding=1),
-                    #nn.BatchNorm2d(hidden_dims[i+1]),
                     nn.InstanceNorm2d(hidden_dims[i+2], affine=True),
                     nn.LeakyReLU(inplace=True)
                 )
@@ -32,8 +31,12 @@ class Decoder(nn.Module):
 
         self.output_layer = nn.Sequential(
             nn.ConvTranspose2d(in_channels=hidden_dims[-1], out_channels=3, kernel_size=3, stride=2, padding=1, output_padding=1),
-            #nn.BatchNorm2d(3),
-            #nn.InstanceNorm2d(3, affine=True),
+            nn.InstanceNorm2d(num_features=3, affine=True),
+
+            nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, stride=1, padding=1),
+            nn.InstanceNorm2d(num_features=3, affine=True),
+            
+            nn.Conv2d(in_channels=3, out_channels=3, kernel_size=1, stride=1, padding=0),
             nn.Sigmoid()
         )
 

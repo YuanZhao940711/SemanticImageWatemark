@@ -119,11 +119,10 @@ class DisentanglementEncoder(nn.Module):
         self.downsample_blocks_7 = get_block(unit_module=ResidualBlock, in_channel=1024, out_channel=2048, num_units=2, norm=norm) # bsx1024x4x4 -> bsx2048x2x2
 
         self.id_encoder = nn.Sequential(
-            #nn.InstanceNorm2d(num_features=1024, affine=True),
             nn.Dropout(0.4),
             nn.Flatten(),
             nn.Linear(2048*2*2, latent_dim),
-            #nn.InstanceNorm1d(num_features=latent_dim, affine=True),
+            nn.BatchNorm1d(num_features=latent_dim, affine=True),
             nn.Tanh()
         )
 

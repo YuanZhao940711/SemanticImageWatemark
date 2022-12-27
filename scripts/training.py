@@ -157,17 +157,20 @@ class Train:
         secret_null = torch.zeros(cover.shape[0] - secret_ori.shape[0], secret.shape[1], secret.shape[2], secret.shape[3]).to(self.args.device)
         secret_input = torch.cat((secret_ori, secret_null), dim=0)
 
-        secret_feature = self.encoder(secret) # 1*256*256*3 -> 1*512
-        secret_feature_ori = secret_feature.repeat(cover_id.shape[0]//2, 1) 
-        secret_feature_null = torch.zeros(cover.shape[0] - secret_feature_ori.shape[0], secret_feature.shape[1]).to(self.args.device)
+        #secret_feature = self.encoder(secret) # 1*256*256*3 -> 1*512
+        #secret_feature_ori = secret_feature.repeat(cover_id.shape[0]//2, 1) 
+        #secret_feature_null = torch.zeros(cover.shape[0] - secret_feature_ori.shape[0], secret_feature.shape[1]).to(self.args.device)
+        secret_feature_ori = self.encoder(secret_ori) # bs/2 * 256 * 256 * 3 -> bs/2 * 512
+        secret_feature_null = torch.zeros(cover.shape[0] - secret_feature_ori.shape[0], secret_feature_ori.shape[1]).to(self.args.device)
         secret_feature_input = torch.cat((secret_feature_ori, secret_feature_null), dim=0)
 
         fused_feature = self.fuser(cover_id[:cover_id.shape[0]//2], secret_feature_ori)        
 
         input_feature = torch.cat((fused_feature, cover_id[cover_id.shape[0]//2:]), dim=0)
-        input_feature_norm = l2_norm(input_feature)
+        #input_feature_norm = l2_norm(input_feature)
 
-        container = self.aadblocks(inputs=(cover_att, input_feature_norm))
+        #container = self.aadblocks(inputs=(cover_att, input_feature_norm))
+        container = self.aadblocks(inputs=(cover_att, input_feature))
         container_id, container_att = self.disentangler(container)
 
         secret_feature_rec = self.separator(container_id)

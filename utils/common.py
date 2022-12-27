@@ -113,7 +113,7 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
         secret_feature_rec = vis_dict['secret_feature_rec'][img_idx].cpu().detach().numpy()
         plt.plot(secret_feature_rec)
         plt.grid()
-        feat_similarity = 1 - spatial.distance.cosine(secret_feature, secret_feature_rec)
+        feat_similarity = 1 - spatial.distance.cosine(secret_feature + 1e-5, secret_feature_rec)
         plt.title('Secret Feat Rec FeatSim:{:.2f}'.format(feat_similarity))
 
     plt.tight_layout()
