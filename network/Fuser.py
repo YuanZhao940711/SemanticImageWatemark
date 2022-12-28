@@ -8,17 +8,17 @@ class Fuser(nn.Module):
         super(Fuser, self).__init__()
 
         self.fuser = nn.Sequential(
-            nn.Linear(in_features=latent_dim*2, out_features=latent_dim*4),
+            nn.Linear(in_features=latent_dim*2, out_features=latent_dim*4, bias=False),
             nn.BatchNorm1d(num_features=latent_dim*4, affine=True),
             nn.LeakyReLU(inplace=True),
 
-            nn.Linear(in_features=latent_dim*4, out_features=latent_dim*2),
+            nn.Linear(in_features=latent_dim*4, out_features=latent_dim*2, bias=False),
             nn.BatchNorm1d(num_features=latent_dim*2, affine=True),
             nn.LeakyReLU(inplace=True),
         )
         self.output_layer = nn.Sequential(
-            nn.Linear(in_features=latent_dim*2, out_features=latent_dim),
-            nn.BatchNorm1d(num_features=latent_dim, affine=True),
+            nn.Linear(in_features=latent_dim*2, out_features=latent_dim, bias=False),
+            #nn.BatchNorm1d(num_features=latent_dim, affine=True),
             nn.Tanh()
         )
         

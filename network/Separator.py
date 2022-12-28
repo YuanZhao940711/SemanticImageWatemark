@@ -8,18 +8,18 @@ class Separator(nn.Module):
         super(Separator, self).__init__()
 
         self.separator = nn.Sequential(
-            nn.Linear(in_features=latent_dim, out_features=latent_dim*2),
+            nn.Linear(in_features=latent_dim, out_features=latent_dim*2, bias=False),
             nn.BatchNorm1d(num_features=latent_dim*2, affine=True),
             nn.LeakyReLU(inplace=True),
 
-            nn.Linear(in_features=latent_dim*2, out_features=latent_dim*2),
+            nn.Linear(in_features=latent_dim*2, out_features=latent_dim*2, bias=False),
             nn.BatchNorm1d(num_features=latent_dim*2, affine=True),
             nn.LeakyReLU(inplace=True),
         )
 
         self.output_layer = nn.Sequential(
-            nn.Linear(in_features=latent_dim*2, out_features=latent_dim),
-            nn.BatchNorm1d(num_features=latent_dim, affine=True),
+            nn.Linear(in_features=latent_dim*2, out_features=latent_dim, bias=False),
+            #nn.BatchNorm1d(num_features=latent_dim, affine=True),
             nn.Tanh()
         )
 

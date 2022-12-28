@@ -89,12 +89,12 @@ class Train:
             print_log("[*]Training Decoder from scratch", self.args.logpath)
 
         ##### Initialize optimizers #####
-        self.opt_dis = optim.Adam(self.disentangler.parameters(), lr=self.args.lr_dis, betas=(0, 0.5))
-        self.opt_aad = optim.Adam(self.aadblocks.parameters(), lr=self.args.lr_aad, betas=(0, 0.5))
-        self.opt_fuser = optim.Adam(self.fuser.parameters(), lr=self.args.lr_fuser, betas=(0, 0.5))
-        self.opt_separator = optim.Adam(self.separator.parameters(), lr=self.args.lr_separator, betas=(0, 0.5))
-        self.opt_encoder = optim.Adam(self.encoder.parameters(), lr=self.args.lr_encoder, betas=(0, 0.5))
-        self.opt_decoder = optim.Adam(self.decoder.parameters(), lr=self.args.lr_decoder, betas=(0, 0.5))
+        self.opt_dis = optim.Adam(self.disentangler.parameters(), lr=self.args.lr_dis, betas=(0.5, 0.999))
+        self.opt_aad = optim.Adam(self.aadblocks.parameters(), lr=self.args.lr_aad, betas=(0.5, 0.999))
+        self.opt_fuser = optim.Adam(self.fuser.parameters(), lr=self.args.lr_fuser, betas=(0.5, 0.999))
+        self.opt_separator = optim.Adam(self.separator.parameters(), lr=self.args.lr_separator, betas=(0.5, 0.999))
+        self.opt_encoder = optim.Adam(self.encoder.parameters(), lr=self.args.lr_encoder, betas=(0.5, 0.999))
+        self.opt_decoder = optim.Adam(self.decoder.parameters(), lr=self.args.lr_decoder, betas=(0.5, 0.999))
 
         ##### Initialize loss functions #####
         self.att_loss = loss_functions.AttLoss().to(self.args.device)
@@ -106,15 +106,18 @@ class Train:
         ##### Initialize data loaders ##### 
         train_cover_transforms = transforms.Compose([
             transforms.Resize([self.args.image_size, self.args.image_size]),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
         val_cover_transforms = transforms.Compose([
             transforms.Resize([self.args.image_size, self.args.image_size]),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
         secret_transforms = transforms.Compose([
             transforms.Resize([self.args.image_size, self.args.image_size]),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
 
         train_cover_dataset = ImageDataset(root=self.args.train_cover_dir, transforms=train_cover_transforms)
@@ -196,6 +199,13 @@ class Train:
 
 
     def training(self, epoch, cover_loader, secret_loader):
+        self.disentangler.train()
+        self.aadblocks.train()
+        self.fuser.train()
+        self.separator.train()
+        self.encoder.train()
+        self.decoder.train()
+
         batch_time = AverageMeter()
         Att_loss = AverageMeter()
         Id_loss = AverageMeter()
@@ -216,13 +226,6 @@ class Train:
                 secret_batch = next(secret_iterator)
 
             ##### Training #####
-            self.disentangler.train()
-            self.aadblocks.train()
-            self.fuser.train()
-            self.separator.train()
-            self.encoder.train()
-            self.decoder.train()
-
             data_dict = self.forward_pass(cover_batch, secret_batch)
 
             loss_att = self.att_loss(data_dict['container_att'], data_dict['cover_att'])
@@ -297,7 +300,6 @@ class Train:
         self.decoder.eval()
 
         batch_time = AverageMeter()
-
         Att_loss = AverageMeter()
         Id_loss = AverageMeter()
         Rec_con_loss = AverageMeter()
