@@ -24,6 +24,7 @@ class TrainOptions:
         #self.parser.add_argument('--facenet_dir', default='./saved_models', type=str)
         self.parser.add_argument('--checkpoint_dir', default='./best_models', type=str)
 
+        self.parser.add_argument('--lr', default=1e-4, type=float)
         self.parser.add_argument('--lr_dis', default=1e-4, type=float)
         self.parser.add_argument('--lr_aad', default=1e-4, type=float)
         self.parser.add_argument('--lr_fuser', default=1e-4, type=float)

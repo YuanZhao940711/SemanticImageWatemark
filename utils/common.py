@@ -26,7 +26,10 @@ def l2_norm(input,axis=1):
 def tensor2img(var):
     # var: 3 x 256 x 256 --> 256 x 256 x 3
     var = var.cpu().detach().numpy().transpose([1,2,0])
-    #var = ((var+1) / 2)
+    # de-normalize
+    #var = ((var+1) / 2) 
+    mean, std = 0.5, 0.5
+    var = std * var + mean
     var[var < 0] = 0
     var[var > 1] = 1
     var = var * 255

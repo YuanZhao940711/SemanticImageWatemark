@@ -22,11 +22,10 @@ from network.Encoder import Encoder
 from network.Decoder import Decoder
 
 from criteria import loss_functions
-from face_modules.model import Backbone
+#from face_modules.model import Backbone
 
 from utils.dataset import ImageDataset
-#from utils.common import visualize_results, print_log, alignment, l2_norm, log_metrics, AverageMeter
-from utils.common import visualize_results, print_log, l2_norm, log_metrics, AverageMeter
+from utils.common import visualize_results, print_log, log_metrics, AverageMeter
 
 
 
@@ -89,12 +88,17 @@ class Train:
             print_log("[*]Training Decoder from scratch", self.args.logpath)
 
         ##### Initialize optimizers #####
+        """
         self.opt_dis = optim.Adam(self.disentangler.parameters(), lr=self.args.lr_dis, betas=(0.5, 0.999))
         self.opt_aad = optim.Adam(self.aadblocks.parameters(), lr=self.args.lr_aad, betas=(0.5, 0.999))
         self.opt_fuser = optim.Adam(self.fuser.parameters(), lr=self.args.lr_fuser, betas=(0.5, 0.999))
         self.opt_separator = optim.Adam(self.separator.parameters(), lr=self.args.lr_separator, betas=(0.5, 0.999))
         self.opt_encoder = optim.Adam(self.encoder.parameters(), lr=self.args.lr_encoder, betas=(0.5, 0.999))
         self.opt_decoder = optim.Adam(self.decoder.parameters(), lr=self.args.lr_decoder, betas=(0.5, 0.999))
+        """
+        params = list(list(self.disentangler.parameters()) + list(self.aadblocks.parameters()) + list(self.fuser.parameters()) + list(self.separator.parameters()) + list(self.encoder.parameters()) + list(self.decoder.parameters()))
+        self.optimizer = optim.Adam(params, lr=self.args.lr, betas=(0.5, 0.999))
+        self.scheduler = optim.lr_scheduler.StepLR(optimizer=self.optimizer, step_size=5, gamma=0.2, last_epoch=-1, verbose=True)
 
         ##### Initialize loss functions #####
         self.att_loss = loss_functions.AttLoss().to(self.args.device)
@@ -230,28 +234,35 @@ class Train:
 
             loss_att = self.att_loss(data_dict['container_att'], data_dict['cover_att'])
             # 可以给 Id 设置一个比例，一部分约束 fused feature 和 container id，另外一部分约束 cover id 和 container id
-            loss_id = self.id_loss(data_dict['input_feature'], data_dict['container_id'])
+            #loss_id = self.id_loss(data_dict['input_feature'], data_dict['container_id'])
+            loss_id = self.id_loss(data_dict['container_id'], data_dict['cover_id'])
             loss_con_rec = self.rec_con_loss(data_dict['container'], data_dict['cover'])
             loss_sec_rec = self.rec_sec_loss(data_dict['secret_rec'], data_dict['secret_input'])
             loss_feat = self.feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_input'])
 
             Sum_train_losses = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*loss_sec_rec + self.args.feat_lambda*loss_feat
 
+            """
             self.opt_dis.zero_grad()
             self.opt_aad.zero_grad()
             self.opt_fuser.zero_grad()
             self.opt_separator.zero_grad()
             self.opt_encoder.zero_grad()
             self.opt_decoder.zero_grad()
+            """
+            self.optimizer.zero_grad()
 
             Sum_train_losses.backward()
 
+            """
             self.opt_dis.step()
             self.opt_aad.step()
             self.opt_fuser.step()
             self.opt_separator.step()
             self.opt_encoder.step()
             self.opt_decoder.step()
+            """
+            self.optimizer.step()
 
             ##### Log losses and computation time #####
             Att_loss.update(loss_att.item(), self.args.train_bs)
@@ -374,6 +385,8 @@ class Train:
             if epoch % self.args.validation_interval == 0:
                 with torch.no_grad():
                     validation_loss, data_dict = self.validation(epoch, self.val_cover_loader, self.secret_loader)
+                
+                self.scheduler.step()
                 
                 stat_dict = {
                     'epoch': epoch + 1,

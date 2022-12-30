@@ -98,7 +98,7 @@ class AADGenerator(nn.Module):
         self.AADResBlk8 = AADResBlock(64, 3, 64, c_id)
 
         #self.apply(weight_init)
-        self.output_function = nn.Sigmoid()
+        self.output_function = nn.Tanh() # nn.Sigmoid()
 
     def forward(self, inputs):
     #def forward(self, z_att, z_id):
