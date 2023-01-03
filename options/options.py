@@ -9,7 +9,7 @@ class TrainOptions:
 
     def initialize(self): 
         self.parser.add_argument('--seed', default=0, type=int)
-        
+
         self.parser.add_argument('--image_size', default=256, type=int)
         self.parser.add_argument('--train_bs', default=8, type=int)
         self.parser.add_argument('--secret_bs', default=8, type=int)
@@ -20,29 +20,21 @@ class TrainOptions:
         self.parser.add_argument('--max_val_iters', default=50, type=int)
 
         self.parser.add_argument('--latent_dim', default=512, type=int)
-        #self.parser.add_argument('--facenet_mode', default='arcface', type=str)
-        #self.parser.add_argument('--facenet_dir', default='./saved_models', type=str)
         self.parser.add_argument('--checkpoint_dir', default='./best_models', type=str)
 
         self.parser.add_argument('--lr', default=1e-4, type=float)
-        self.parser.add_argument('--lr_dis', default=1e-4, type=float)
-        self.parser.add_argument('--lr_aad', default=1e-4, type=float)
-        self.parser.add_argument('--lr_fuser', default=1e-4, type=float)
-        self.parser.add_argument('--lr_separator', default=1e-4, type=float)
-        self.parser.add_argument('--lr_encoder', default=1e-4, type=float)
-        self.parser.add_argument('--lr_decoder', default=1e-4, type=float)
+
+        self.parser.add_argument('--id_ratio', default=0.5, type=float)
 
         self.parser.add_argument('--adv_lambda', default=1.0, type=float)
         self.parser.add_argument('--att_lambda', default=1.0, type=float)
         self.parser.add_argument('--id_lambda', default=1.0, type=float)
         self.parser.add_argument('--rec_con_lambda', default=1.0, type=float)
         self.parser.add_argument('--rec_sec_lambda', default=1.0, type=float)
-        self.parser.add_argument('--feat_lambda', default=1.0, type=float)
 
         self.parser.add_argument('--idloss_mode', default='Cos', type=str)
         self.parser.add_argument('--recconloss_mode', default='lpips', type=str)
         self.parser.add_argument('--recsecloss_mode', default='l2', type=str)
-        self.parser.add_argument('--featloss_mode', default='MSE', type=str)
 
         self.parser.add_argument('--board_interval', default=50, type=int)
         self.parser.add_argument('--image_interval', default=1000, type=int)

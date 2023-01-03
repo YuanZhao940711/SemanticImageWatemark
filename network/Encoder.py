@@ -25,7 +25,6 @@ class Encoder(nn.Module):
             nn.Conv2d(in_channels=hidden_dims[-2], out_channels=hidden_dims[-1], kernel_size=3, stride=2, padding=1, bias=False), # bs*1024*2*2 -> bs*2048*1*1
             nn.Flatten(), # bs*2048*1*1 -> bs*2048
             nn.Linear(in_features=hidden_dims[-1], out_features=latent_dim, bias=False), # bs*2048 -> bs*512
-            #nn.BatchNorm1d(num_features=latent_dim, affine=True),
             nn.Tanh()
         )
 

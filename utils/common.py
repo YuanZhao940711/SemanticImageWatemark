@@ -53,8 +53,8 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
     secret_gap = vis_dict['secret_rec'] - vis_dict['secret_input']
     secret_gap = (secret_gap*10 + 0.5).clamp_(0.0, 1.0)
 
-    fig = plt.figure(figsize=(44, 4*dis_num))
-    gs = fig.add_gridspec(nrows=dis_num, ncols=11)
+    fig = plt.figure(figsize=(40, 4*dis_num))
+    gs = fig.add_gridspec(nrows=dis_num, ncols=10)
     for img_idx in range(dis_num):
         fig.add_subplot(gs[img_idx, 0])
         cover = tensor2img(vis_dict['cover'][img_idx])
@@ -111,13 +111,6 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
         cover_similarity = 1 - spatial.distance.cosine(cover_id, container_id)
         fused_similarity = 1 - spatial.distance.cosine(input_feature, container_id)
         plt.title('Container_id CovSim:{:.2f} FusSim:{:.2f}'.format(cover_similarity, fused_similarity))
-
-        fig.add_subplot(gs[img_idx, 10])
-        secret_feature_rec = vis_dict['secret_feature_rec'][img_idx].cpu().detach().numpy()
-        plt.plot(secret_feature_rec)
-        plt.grid()
-        feat_similarity = 1 - spatial.distance.cosine(secret_feature + 1e-5, secret_feature_rec)
-        plt.title('Secret Feat Rec FeatSim:{:.2f}'.format(feat_similarity))
 
     plt.tight_layout()
     fig.savefig(ResultImgName)
