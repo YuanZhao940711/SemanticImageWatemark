@@ -31,7 +31,7 @@ def conv4x4(in_c, out_c, norm=nn.InstanceNorm2d):
     return nn.Sequential(
         nn.Conv2d(in_channels=in_c, out_channels=out_c, kernel_size=4, stride=2, padding=1),
         norm(num_features=out_c, affine=True),
-        nn.LeakyReLU(0.1, inplace=True)
+        nn.LeakyReLU(0.1, inplace=True),
     )
 
 

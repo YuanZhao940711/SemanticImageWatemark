@@ -18,7 +18,6 @@ class Fuser(nn.Module):
         )
         self.output_layer = nn.Sequential(
             nn.Linear(in_features=latent_dim*2, out_features=latent_dim, bias=False),
-            #nn.BatchNorm1d(num_features=latent_dim, affine=True),
             nn.Tanh()
         )
         

@@ -22,11 +22,12 @@ class TrainOptions:
         self.parser.add_argument('--latent_dim', default=512, type=int)
         self.parser.add_argument('--checkpoint_dir', default='./best_models', type=str)
 
-        self.parser.add_argument('--lr', default=1e-4, type=float)
+        self.parser.add_argument('--dis_lr', default=1e-4, type=float)
+        self.parser.add_argument('--gen_lr', default=1e-4, type=float)
+        self.parser.add_argument('--fuser_lr', default=1e-4, type=float)
+        self.parser.add_argument('--encoder_lr', default=1e-4, type=float)
+        self.parser.add_argument('--decoder_lr', default=1e-4, type=float)
 
-        self.parser.add_argument('--id_ratio', default=0.5, type=float)
-
-        self.parser.add_argument('--adv_lambda', default=1.0, type=float)
         self.parser.add_argument('--att_lambda', default=1.0, type=float)
         self.parser.add_argument('--id_lambda', default=1.0, type=float)
         self.parser.add_argument('--rec_con_lambda', default=1.0, type=float)

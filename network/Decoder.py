@@ -15,7 +15,7 @@ class Decoder(nn.Module):
         
         self.input_deconv = nn.Sequential(
             nn.ConvTranspose2d(in_channels=hidden_dims[0], out_channels=hidden_dims[1], kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.LeakyReLU(inplace=True)
+            nn.LeakyReLU(inplace=True),
         )
 
         for i in range(len(hidden_dims) - 2):
@@ -23,7 +23,7 @@ class Decoder(nn.Module):
                 nn.Sequential(
                     nn.ConvTranspose2d(in_channels=hidden_dims[i+1], out_channels=hidden_dims[i+2], kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
                     nn.InstanceNorm2d(hidden_dims[i+2], affine=True),
-                    nn.LeakyReLU(inplace=True)
+                    nn.LeakyReLU(inplace=True),
                 )
             )
 

@@ -14,7 +14,7 @@ class Encoder(nn.Module):
                 nn.Sequential(
                     nn.Conv2d(in_channels=in_channels, out_channels=h_dim, kernel_size=3, stride=2, padding=1, bias=False),
                     nn.InstanceNorm2d(h_dim, affine=True),
-                    nn.LeakyReLU(inplace=True)
+                    nn.LeakyReLU(inplace=True),
                 )
             )
             in_channels = h_dim
