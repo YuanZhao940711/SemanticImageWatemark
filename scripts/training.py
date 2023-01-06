@@ -148,20 +148,13 @@ class Train:
 
     def forward_pass(self, cover, secret):
         cover = cover.to(self.args.device)
+        secret = secret.to(self.args.device)
+        
         cover_id, cover_att = self.disentangler(cover)
 
-        secret = secret.to(self.args.device)
-        secret_ori = secret.repeat(cover.shape[0]//2, 1, 1, 1)
-        secret_null = torch.zeros(cover.shape[0] - secret_ori.shape[0], secret.shape[1], secret.shape[2], secret.shape[3]).to(self.args.device)
-        secret_input = torch.cat((secret_ori, secret_null), dim=0)
+        secret_feature = self.encoder(secret)
 
-        secret_feature_ori = self.encoder(secret_ori) # bs/2 * 256 * 256 * 3 -> bs/2 * 512
-        secret_feature_null = torch.zeros(cover.shape[0] - secret_feature_ori.shape[0], secret_feature_ori.shape[1]).to(self.args.device)
-        secret_feature_input = torch.cat((secret_feature_ori, secret_feature_null), dim=0)
-
-        fused_feature = self.fuser(cover_id[:cover.shape[0]//2], secret_feature_ori)
-        
-        input_feature = torch.cat((fused_feature, cover_id[cover.shape[0]//2:]), dim=0)
+        input_feature = self.fuser(cover_id, secret_feature)
 
         container = self.generator(inputs=(cover_att, input_feature))
         
@@ -173,13 +166,12 @@ class Train:
         data_dict = {
             'cover': cover,
             'container': container,
-            'secret_input': secret_input,
+            'secret_input': secret,
             'secret_rec': secret_rec,
             'cover_id': cover_id,
-            'fused_feature': fused_feature,
             'input_feature': input_feature,
             'container_id': container_id,
-            'secret_feature_input': secret_feature_input,
+            'secret_feature_input': secret_feature,
             'cover_att': cover_att,
             'container_att': container_att,
         }
@@ -202,9 +194,6 @@ class Train:
         Rec_sec_loss = AverageMeter()
         Train_losses = AverageMeter()
 
-        Id_wat_loss = AverageMeter()
-        Rec_wat_con_loss = AverageMeter()
-
         start_time = time.time()
 
         secret_iterator = iter(secret_loader)
@@ -221,49 +210,30 @@ class Train:
             loss_att = self.att_loss(data_dict['container_att'], data_dict['cover_att'])
             loss_id = self.id_loss(data_dict['container_id'], data_dict['input_feature'])
             loss_con_rec = self.rec_con_loss(data_dict['container'], data_dict['cover'])
-
-            #loss_wat_id = self.id_loss(data_dict['container_id'][:cover_batch.shape[0]//2].clone(), data_dict['fused_feature'].clone())
-            #loss_ori_id = self.id_loss(data_dict['container_id'][cover_batch.shape[0]//2:], data_dict['cover_id'][cover_batch.shape[0]//2:])
-            #loss_id = loss_wat_id + loss_ori_id
-
-            #loss_wat_con_rec = self.rec_con_loss(data_dict['container'][:cover_batch.shape[0]//2].clone(), data_dict['cover'][:cover_batch.shape[0]//2].clone())
-            #loss_ori_con_rec = self.rec_con_loss(data_dict['container'][cover_batch.shape[0]//2:], data_dict['cover'][cover_batch.shape[0]//2:])
-            #loss_con_rec = loss_wat_con_rec + loss_ori_con_rec
-
             loss_sec_rec = self.rec_sec_loss(data_dict['secret_rec'], data_dict['secret_input'])
 
-            hiding_losses = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec
+            Sum_train_losses = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*loss_sec_rec
+
             self.dis_optim.zero_grad()
             self.gen_optim.zero_grad()
-            hiding_losses.backward(retain_graph=True)
-            self.dis_optim.step()
-            self.gen_optim.step()
-
-            #feature_losses = loss_wat_id + loss_wat_con_rec
-            """feature_losses = loss_wat_con_rec
             self.fuser_optim.zero_grad()
-            feature_losses.backward(retain_graph=True)
-            self.fuser_optim.step()"""
-
-            #revealing_losses = loss_wat_id + self.args.rec_sec_lambda*loss_sec_rec
-            revealing_losses = self.args.rec_sec_lambda*loss_sec_rec
             self.encoder_optim.zero_grad()
             self.decoder_optim.zero_grad()
-            revealing_losses.backward()
+
+            Sum_train_losses.backward()
+
+            self.fuser_optim.step()
+            self.dis_optim.step()
+            self.gen_optim.step()
             self.encoder_optim.step()
             self.decoder_optim.step()
-
-            Sum_train_losses = loss_att + loss_id + loss_con_rec + loss_sec_rec
-
+            
             ##### Log losses and computation time #####
             Att_loss.update(loss_att.item(), self.args.train_bs)
             Id_loss.update(loss_id.item(), self.args.train_bs)
             Rec_con_loss.update(loss_con_rec.item(), self.args.train_bs)
             Rec_sec_loss.update(loss_sec_rec.item(), self.args.train_bs)
             Train_losses.update(Sum_train_losses.item(), self.args.train_bs)
-
-            Id_wat_loss.update(loss_wat_id.item(), self.args.train_bs)
-            Rec_wat_con_loss.update(loss_wat_con_rec.item(), self.args.train_bs)
 
             batch_time.update(time.time()-start_time)
             start_time = time.time()
@@ -273,15 +243,13 @@ class Train:
                 'IdLoss': Id_loss.avg,
                 'RecConLoss': Rec_con_loss.avg,
                 'RecSecLoss': Rec_sec_loss.avg,
-                'SumTrainLosses': Train_losses.avg,
-                'IdWat:oss': Id_wat_loss.avg,
-                'RecWatConLoss': Rec_wat_con_loss.avg,                
+                'SumTrainLosses': Train_losses.avg,       
             }
 
             ##### Board and log losses, and visualize results #####
             if (self.global_train_steps+1) % self.args.board_interval == 0:
-                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Sumlosses={:.6f} Id_wat_lss={:.6f} Rec_wat_con_loss={:.6f} BatchTime: {:.4f}".format(
-                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Att_loss.val, Id_loss.val, Rec_con_loss.val, Rec_sec_loss.val, Train_losses.val, Id_wat_loss.val, Rec_wat_con_loss.val, batch_time.val
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_con_loss: {:.6f} Rec_sec_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Att_loss.val, Id_loss.val, Rec_con_loss.val, Rec_sec_loss.val, Train_losses.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
                 log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
@@ -328,7 +296,7 @@ class Train:
             loss_con_rec = self.rec_con_loss(data_dict['container'], data_dict['cover'])
             loss_sec_rec = self.rec_sec_loss(data_dict['secret_rec'], data_dict['secret_input'])
 
-            sum_val_loss = loss_att + loss_id + loss_con_rec + loss_sec_rec
+            sum_val_loss = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_con_lambda*loss_con_rec + self.args.rec_sec_lambda*loss_sec_rec
 
             Att_loss.update(loss_att.item(), self.args.train_bs)
             Id_loss.update(loss_id.item(), self.args.train_bs)

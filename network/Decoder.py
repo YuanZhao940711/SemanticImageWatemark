@@ -32,11 +32,13 @@ class Decoder(nn.Module):
         self.output_layer = nn.Sequential(
             nn.ConvTranspose2d(in_channels=hidden_dims[-1], out_channels=3, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
             nn.InstanceNorm2d(num_features=3, affine=True),
+            nn.LeakyReLU(inplace=True),
 
             nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False),
             nn.InstanceNorm2d(num_features=3, affine=True),
+            #nn.LeakyReLU(inplace=True),
 
-            nn.Conv2d(in_channels=3, out_channels=3, kernel_size=1, stride=1, padding=0),
+            #nn.Conv2d(in_channels=3, out_channels=3, kernel_size=1, stride=1, padding=0),
             nn.Tanh(),
         )
 

@@ -185,10 +185,32 @@ class FeatLoss(nn.Module):
 
 
 
+class VaeRecLoss(nn.Module):
+    def __init__(self, loss_mode, device):
+        super(VaeRecLoss, self).__init__()
+        self.mode = loss_mode
+        if self.mode == 'l2':
+            self.criterion = nn.MSELoss().to(device)
+        elif self.mode == 'lpips':
+            self.criterion = LPIPS(net_type='alex').to(device).eval()
+        else:
+            raise ValueError('Unexpected Loss Mode {}'.format(loss_mode))
+
+    def forward(self, img_input, img_output):
+        if self.mode == 'l2':
+            rec_loss = 0.5 * self.criterion(img_input, img_output)
+        elif self.mode == 'lpips':
+            rec_loss = self.criterion(img_input, img_output)
+        return rec_loss
+
+
+
 class KlLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, device):
         super(KlLoss, self).__init__()
+        self.device = device
         
-    def forward(self, mu, log_var):
-        kl_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim=0)
+    def forward(self, mu, log_sigma_2):
+        #kl_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim=0).to(self.device)
+        kl_loss = torch.mean(-0.5 * torch.sum(log_sigma_2 - mu**2 - torch.exp(log_sigma_2) + 1, dim = 1), dim=0).to(self.device)
         return kl_loss

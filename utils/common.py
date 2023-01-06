@@ -5,12 +5,22 @@ from scipy import spatial
 import matplotlib.pyplot as plt
 
 import torch
+import torch.nn as nn
+import torch.nn.init as init
 import torch.nn.functional as F
 
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 
 #from thop import profile
 #from thop import clever_format
+
+
+def weights_init(m):
+    if isinstance(m, nn.Conv2d):
+        init.kaiming_normal_(m.weight.data, a=0, mode='fan_out')
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0) 
+        m.bias.data.fill_(0)
 
 
 def alignment(images):
@@ -131,8 +141,8 @@ def visualize_vae_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None,
     rec_gap = vis_dict['image_ori'] - vis_dict['image_rec']
     rec_gap = (rec_gap*10 + 0.5).clamp_(0.0, 1.0)
 
-    fig = plt.figure(figsize=(12, 4*dis_num))
-    gs = fig.add_gridspec(nrows=dis_num, ncols=3)
+    fig = plt.figure(figsize=(16, 4*dis_num))
+    gs = fig.add_gridspec(nrows=dis_num, ncols=4)
     for img_idx in range(dis_num):
         fig.add_subplot(gs[img_idx, 0])
         cover = tensor2img(vis_dict['image_ori'][img_idx])
@@ -148,6 +158,12 @@ def visualize_vae_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None,
         covgap_img = tensor2img(rec_gap[img_idx])
         plt.imshow(covgap_img)
         plt.title('Image Rec Gap')
+
+        fig.add_subplot(gs[img_idx, 3])
+        input_feature = vis_dict['image_feature'][img_idx].cpu().detach().numpy()
+        plt.plot(input_feature)
+        plt.grid()
+        plt.title('Image feature')
 
     plt.tight_layout()
     fig.savefig(ResultImgName)
