@@ -211,6 +211,5 @@ class KlLoss(nn.Module):
         self.device = device
         
     def forward(self, mu, log_sigma_2):
-        #kl_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim=0).to(self.device)
         kl_loss = torch.mean(-0.5 * torch.sum(log_sigma_2 - mu**2 - torch.exp(log_sigma_2) + 1, dim = 1), dim=0).to(self.device)
         return kl_loss

@@ -31,8 +31,6 @@ class Train:
 
         torch.backends.deterministic = True
         torch.backends.cudnn.benchmark = True
-        #torch.autograd.detect_anomaly
-        #torch.autograd.set_detect_anomaly = True
         SEED = self.args.seed
         np.random.seed(SEED)
         torch.manual_seed(SEED)
@@ -104,8 +102,8 @@ class Train:
         self.best_loss = None
 
 
-    def forward_pass(self, image):
-        image_ori = image.to(self.args.device)
+    def forward_pass(self, image_ori):
+        image_ori = image_ori.to(self.args.device)
         
         #image_feature = self.encoder(image_ori)
         image_feature, image_mu, image_logsigma2 = self.encoder(image_ori)
@@ -148,9 +146,9 @@ class Train:
 
             self.encoder_optim.zero_grad()
             self.decoder_optim.zero_grad()
-            #SumTrainLosses.backward()
-            loss_kl.backward(retain_graph=True)
-            loss_rec.backward()
+            SumTrainLosses.backward()
+            #loss_kl.backward(retain_graph=True)
+            #loss_rec.backward()
             self.encoder_optim.step()
             self.decoder_optim.step()
             

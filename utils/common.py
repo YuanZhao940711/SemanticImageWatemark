@@ -11,8 +11,6 @@ import torch.nn.functional as F
 
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 
-#from thop import profile
-#from thop import clever_format
 
 
 def weights_init(m):
@@ -23,14 +21,17 @@ def weights_init(m):
         m.bias.data.fill_(0)
 
 
+
 def alignment(images):
   return F.interpolate(images[:, :, 19:237, 19:237], [112, 112], mode='bilinear', align_corners=True)
+
 
 
 def l2_norm(input,axis=1):
     norm = torch.norm(input, 2, axis, True)
     output = torch.div(input, norm)
     return output
+
 
 
 def tensor2img(var):
@@ -254,16 +255,6 @@ def evaluation(label, pred):
     tn, fp, fn, tp = confusion_matrix(y_true=label, y_pred=pred).ravel()
 
     return accuracy, precision, recall, f1_score, tn, fp, fn, tp
-
-
-
-"""
-def count_models(test_model, dummy_input):
-    flops, params = profile(test_model, inputs=(dummy_input,))
-    flops, params = clever_format([flops, params], '%.4f')
-
-    return flops, params
-"""
 
 
 

@@ -24,11 +24,8 @@ class Encoder(nn.Module):
 
         self.output_layer = nn.Sequential(
             nn.Conv2d(in_channels=hidden_dims[-2], out_channels=hidden_dims[-1], kernel_size=3, stride=2, padding=1, bias=False), # bs*1024*2*2 -> bs*2048*1*1
-            #nn.InstanceNorm2d(hidden_dims[-1], affine=True),
             nn.LeakyReLU(inplace=True),
             nn.Flatten(), # bs*2048*1*1 -> bs*2048
-            #nn.Linear(in_features=hidden_dims[-1], out_features=latent_dim, bias=False), # bs*2048 -> bs*512
-            #nn.Tanh(),
         )
 
         self.fc_mu = nn.Linear(in_features=latent_dim*4, out_features=latent_dim)
@@ -47,17 +44,11 @@ class Encoder(nn.Module):
 
     def forward(self, input):
         result = self.encoder(input) # bs*256*256*3 -> bs*1024*2*2
-        #latent_z = self.output_layer(result) # bs*1024*2*2 -> bs*512
 
-        #result = torch.flatten(result, start_dim=1) # bs*1024*2*2 -> bs*4096
         result = self.output_layer(result) # bs*1024*2*2 -> bs*2048
 
         mu = self.fc_mu(result)
         log_sigma_2 = self.fc_logsigma2(result)
-
-        #std = torch.exp(0.5 * log_var)
-        #eps = torch.rand_like(std)
-        #latent_z = eps * std + mu
 
         latent_z = self.reparameterize(mu, log_sigma_2)
 
