@@ -213,3 +213,16 @@ class KlLoss(nn.Module):
     def forward(self, mu, log_sigma_2):
         kl_loss = torch.mean(-0.5 * torch.sum(log_sigma_2 - mu**2 - torch.exp(log_sigma_2) + 1, dim = 1), dim=0).to(self.device)
         return kl_loss
+
+
+
+class WNormLoss(nn.Module):
+
+	def __init__(self, start_from_latent_avg=True):
+		super(WNormLoss, self).__init__()
+		self.start_from_latent_avg = start_from_latent_avg
+
+	def forward(self, latent, latent_avg=None):
+		if self.start_from_latent_avg:
+			latent = latent - latent_avg
+		return torch.sum(latent.norm(2, dim=(1, 2))) / latent.shape[0]
