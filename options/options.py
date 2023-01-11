@@ -114,6 +114,7 @@ class TrainPspOptions:
 
         self.parser.add_argument('--encoder_lr', default=1e-4, type=float)
         self.parser.add_argument('--decoder_lr', default=1e-4, type=float)
+        self.parser.add_argument('--step_size', default=10, type=int)
 
         self.parser.add_argument('--mse_lambda', default=1.0, type=float)
         self.parser.add_argument('--lpips_lambda', default=1.0, type=float)

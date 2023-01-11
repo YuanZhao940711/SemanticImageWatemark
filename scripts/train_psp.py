@@ -50,8 +50,8 @@ class Train:
             self.encoder.apply(weights_init)
 
         # Decoder
-        #self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
-        self.decoder = Generator(256, 512, 8).to(self.args.device)
+        #default size=1024, style_dim=512, n_mlp=8
+        self.decoder = Generator(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
         try:
             self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
         except:
@@ -62,8 +62,8 @@ class Train:
         self.encoder_optim = optim.Adam(self.encoder.parameters(), lr=self.args.encoder_lr, betas=(0.5, 0.999), weight_decay=0)
         self.decoder_optim = optim.Adam(self.decoder.parameters(), lr=self.args.decoder_lr, betas=(0.5, 0.999), weight_decay=0)
 
-        self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=10, gamma=0.2, last_epoch=-1, verbose=True)
-        self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=10, gamma=0.2, last_epoch=-1, verbose=True)
+        self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
+        self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
 
         ##### Initialize loss functions #####
         self.mse_loss = nn.MSELoss().to(self.args.device).eval()
@@ -107,8 +107,7 @@ class Train:
     def forward_pass(self, image_ori):
         image_ori = image_ori.to(self.args.device)
         
-        image_feature = self.encoder(image_ori)
-        #image_feature, image_mu, image_logsigma2 = self.encoder(image_ori)
+        image_feature = self.encoder(image_ori) # image_feature.shape = bsx18x512
         
         image_rec, _ = self.decoder(
             styles=[image_feature],
@@ -241,8 +240,11 @@ class Train:
         self.global_train_steps = 0
 
         for epoch in range(self.args.max_epoch):
-            with torch.autograd.detect_anomaly(check_nan=False):
+            self.training(epoch, self.train_loader)
+            """
+            with torch.autograd.detect_anomaly(check_nan=True):
                 self.training(epoch, self.train_loader)
+            """
             
             if epoch % self.args.validation_interval == 0:
                 with torch.no_grad():

@@ -362,9 +362,9 @@ class ToRGB(nn.Module):
 class Generator(nn.Module):
     def __init__(
             self,
-            size,
-            style_dim,
-            n_mlp,
+            size, # default=1024
+            style_dim, # 512
+            n_mlp, # 8
             channel_multiplier=2,
             blur_kernel=[1, 3, 3, 1],
             lr_mlp=0.01,
@@ -404,8 +404,8 @@ class Generator(nn.Module):
         )
         self.to_rgb1 = ToRGB(self.channels[4], style_dim, upsample=False)
 
-        self.log_size = int(math.log(size, 2))
-        self.num_layers = (self.log_size - 2) * 2 + 1
+        self.log_size = int(math.log(size, 2)) #log_2^256=8 default: 10
+        self.num_layers = (self.log_size - 2) * 2 + 1 # (8-2)*2+1=13 default: 17
 
         self.convs = nn.ModuleList()
         self.upsamples = nn.ModuleList()
@@ -443,7 +443,7 @@ class Generator(nn.Module):
 
             in_channel = out_channel
 
-        self.n_latent = self.log_size * 2 - 2
+        self.n_latent = self.log_size * 2 - 2 #8*2-2=14 default: 18
 
     def make_noise(self):
         device = self.input.input.device
@@ -479,18 +479,18 @@ class Generator(nn.Module):
             noise=None,
             randomize_noise=True,
     ):
-        if not input_is_latent:
+        if not input_is_latent: #False
             styles = [self.style(s) for s in styles]
 
-        if noise is None:
-            if randomize_noise:
-                noise = [None] * self.num_layers
+        if noise is None: # True
+            if randomize_noise: # True
+                noise = [None] * self.num_layers # self.num_layers=13 default: 17 / noise = [None, None, None, None, None, None, None, None, None, None, None, None, None]
             else:
                 noise = [
                     getattr(self.noises, f'noise_{i}') for i in range(self.num_layers)
                 ]
 
-        if truncation < 1:
+        if truncation < 1: # False
             style_t = []
 
             for style in styles:
@@ -500,14 +500,15 @@ class Generator(nn.Module):
 
             styles = style_t
 
-        if len(styles) < 2:
-            inject_index = self.n_latent
+        # print(styles[0].shape): torch.Size([8, 18, 512])
+        # print(styles[0].ndim): 3
+        if len(styles) < 2: # len(styles)=1, True
+            inject_index = self.n_latent # 14 default: 18
 
-            if styles[0].ndim < 3:
+            if styles[0].ndim < 3: # False
                 latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
             else:
-                latent = styles[0]
-
+                latent = styles[0] # torch.Size([8, 18, 512])
         else:
             if inject_index is None:
                 inject_index = random.randint(1, self.n_latent - 1)
@@ -517,10 +518,10 @@ class Generator(nn.Module):
 
             latent = torch.cat([latent, latent2], 1)
 
-        out = self.input(latent)
-        out = self.conv1(out, latent[:, 0], noise=noise[0])
+        out = self.input(latent) # out.shape: bsx512x4x4
+        out = self.conv1(out, latent[:, 0], noise=noise[0]) # latent[:, 0].shape = bsx512
 
-        skip = self.to_rgb1(out, latent[:, 1])
+        skip = self.to_rgb1(out, latent[:, 1]) # latent[:, 1].shape = bsx512 / skip.shape = bsx3x4x4
 
         i = 1
         for conv1, conv2, noise1, noise2, to_rgb in zip(
@@ -532,7 +533,7 @@ class Generator(nn.Module):
 
             i += 2
 
-        image = skip
+        image = skip # image.shape: bsx3x256x256
 
         if return_latents:
             return image, latent
