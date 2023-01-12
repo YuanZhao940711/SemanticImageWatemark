@@ -13,11 +13,9 @@ import torchvision.transforms as transforms
 from options.options import GenerateOptions
 
 from network.AAD import AADGenerator
-from network.MAE import MLAttrEncoder
+from network.DisentanglementEncoder import DisentanglementEncoder
 from network.Fuser import Fuser
-from network.Encoder import Encoder
-
-from face_modules.model import Backbone
+from network.Encoder import BackboneEncoderUsingLastLayerIntoW
 
 from utils.dataset import ImageDataset
 from utils.common import tensor2img, alignment, l2_norm
@@ -43,44 +41,37 @@ class Generate:
         assert self.args.checkpoint_dir != None, "[*]Please assign the right directory of the pre-trained models"
         print('[*]Loading pre-trained model from {}'.format(self.args.checkpoint_dir))
 
-        # Id Encoder
-        print("[*]Loading Face Recognition Model {} from {}".format(self.args.facenet_mode, self.args.facenet_dir))
-        if self.args.facenet_mode == 'arcface':
-            self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se').to(self.args.device)
-            self.facenet.load_state_dict(torch.load(os.path.join(self.args.facenet_dir, 'model_ir_se50.pth'), map_location=self.args.device), strict=True)
-        elif self.args.facenet_mode == 'circularface':
-            self.facenet = Backbone(input_size=112, num_layers=100, drop_ratio=0.4, mode='ir', affine=False).to(self.args.device)
-            self.facenet.load_state_dict(torch.load(os.path.join(self.args.facenet_dir, 'CurricularFace_Backbone.pth'), map_location=self.args.device), strict=True)
-        else:
-            raise ValueError("Invalid Face Recognition Model. Must be one of [arcface, CurricularFace]")
-                
+        # Disentanglement Encoder
+        self.disentangler = DisentanglementEncoder(latent_dim=self.args.latent_dim).to(self.args.device)
+        self.disentangler.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Dis_best.pth'), map_location=self.args.device), strict=True)
+
         # AAD Generator
-        self.aadblocks = AADGenerator(c_id=512).to(self.args.device)
-        self.aadblocks.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'AAD_best.pth'), map_location=self.args.device), strict=True)
-        # Att Encoder
-        self.attencoder = MLAttrEncoder().to(self.args.device)
-        self.attencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'ATT_best.pth'), map_location=self.args.device), strict=True)
+        self.generator = AADGenerator(c_id=512).to(self.args.device)
+        self.generator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Gen_best.pth'), map_location=self.args.device), strict=True)
+
         # Fuser
         self.fuser = Fuser(latent_dim=self.args.latent_dim).to(self.args.device)
         self.fuser.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Fuser_best.pth'), map_location=self.args.device), strict=True)
+
         # Encoder
-        self.encoder = Encoder(in_channels=3, latent_dim=self.args.latent_dim).to(self.args.device)
+        self.encoder = BackboneEncoderUsingLastLayerIntoW(num_layers=50, mode='ir_se').to(self.args.device)
         self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
         
-        self.facenet.eval()
-        self.aadblocks.eval()
-        self.attencoder.eval()
+        self.disentangler.eval()
+        self.generator.eval()
         self.fuser.eval()
         self.encoder.eval()
 
         ##### Initialize data loaders ##### 
         cover_transforms = transforms.Compose([
             transforms.Resize([self.args.image_size, self.args.image_size]),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
         secret_transforms = transforms.Compose([
             transforms.Resize([self.args.image_size, self.args.image_size]),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
 
         self.cover_dataset = ImageDataset(root=self.args.cover_dir, transforms=cover_transforms)
@@ -119,15 +110,14 @@ class Generate:
             secret_batch = secret_batch.to(self.args.device)
             secret_batch = secret_batch.repeat(cover_batch.shape[0], 1, 1, 1)
 
-            cover_att = self.attencoder(Xt=cover_batch)
-            cover_id = self.facenet(alignment(cover_batch))
+            cover_id, cover_att = self.disentangler(cover_batch)
 
-            secret_feature = self.encoder(secret_batch)
+            secret_feature_ori = self.encoder(secret_batch)
 
-            input_feature = self.fuser(cover_id, secret_feature)
-            input_feature = l2_norm(input_feature)
+            input_feature = self.fuser(cover_id, secret_feature_ori)
+            #input_feature = l2_norm(input_feature)
 
-            container_batch = self.aadblocks(inputs=(cover_att, input_feature))
+            container_batch = self.generator(inputs=(cover_att, input_feature))
 
             for i, container in enumerate(container_batch):
                 cover = tensor2img(cover_batch[i])

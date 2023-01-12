@@ -398,6 +398,8 @@ class Generator(nn.Module):
             1024: 16 * channel_multiplier,
         }
 
+        self.extender = EqualLinear(512, 512 * 18, lr_mul=1)
+
         self.input = ConstantInput(self.channels[4])
         self.conv1 = StyledConv(
             self.channels[4], self.channels[4], 3, style_dim, blur_kernel=blur_kernel
@@ -478,7 +480,12 @@ class Generator(nn.Module):
             input_is_latent=False,
             noise=None,
             randomize_noise=True,
+            extend_latent=True,
     ):
+        if extend_latent:
+            x = self.extender(styles[0])
+            styles = [x.view(-1, 18, 512)]
+
         if not input_is_latent: #False
             styles = [self.style(s) for s in styles]
 

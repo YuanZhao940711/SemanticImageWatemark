@@ -25,17 +25,20 @@ class TrainOptions:
         self.parser.add_argument('--dis_lr', default=1e-4, type=float)
         self.parser.add_argument('--gen_lr', default=1e-4, type=float)
         self.parser.add_argument('--fuser_lr', default=1e-4, type=float)
+        self.parser.add_argument('--separator_lr', default=1e-4, type=float)
         self.parser.add_argument('--encoder_lr', default=1e-4, type=float)
         self.parser.add_argument('--decoder_lr', default=1e-4, type=float)
+        self.parser.add_argument('--step_size', default=10, type=int)
 
-        self.parser.add_argument('--att_lambda', default=1.0, type=float)
-        self.parser.add_argument('--id_lambda', default=1.0, type=float)
-        self.parser.add_argument('--rec_con_lambda', default=1.0, type=float)
-        self.parser.add_argument('--rec_sec_lambda', default=1.0, type=float)
-
-        self.parser.add_argument('--idloss_mode', default='Cos', type=str)
-        self.parser.add_argument('--recconloss_mode', default='lpips', type=str)
-        self.parser.add_argument('--recsecloss_mode', default='l2', type=str)
+        self.parser.add_argument('--conidloss_mode', default='Cos', type=str)
+        self.parser.add_argument('--conrecloss_mode', default='lpips', type=str)
+        
+        self.parser.add_argument('--con_att_lambda', default=1.0, type=float)
+        self.parser.add_argument('--con_id_lambda', default=1.0, type=float)
+        self.parser.add_argument('--con_rec_lambda', default=1.0, type=float)
+        self.parser.add_argument('--sec_feat_lambda', default=1.0, type=float)
+        self.parser.add_argument('--sec_mse_lambda', default=1.0, type=float)
+        self.parser.add_argument('--sec_lpips_lambda', default=1.0, type=float)
 
         self.parser.add_argument('--board_interval', default=50, type=int)
         self.parser.add_argument('--image_interval', default=1000, type=int)
@@ -148,9 +151,6 @@ class GenerateOptions:
 
         self.parser.add_argument('--latent_dim', default=512, type=int)
         
-        self.parser.add_argument('--facenet_mode', default='arcface', type=str)
-        self.parser.add_argument('--facenet_dir', default='./saved_models', type=str)
-
         self.parser.add_argument('--cover_dir', default='./cover_image', type=str)
         self.parser.add_argument('--secret_dir', default='./secret_image', type=str)
         self.parser.add_argument('--checkpoint_dir', default='./best_models', type=str)
@@ -175,10 +175,7 @@ class ExtractOptions:
         self.parser.add_argument('--num_workers', default=0, type=int)
 
         self.parser.add_argument('--latent_dim', default=512, type=int)
-        
-        self.parser.add_argument('--facenet_mode', default='arcface', type=str)
-        self.parser.add_argument('--facenet_dir', default='./saved_models', type=str)
-                
+                        
         self.parser.add_argument('--container_dir', default='./cover_image', type=str)
         self.parser.add_argument('--checkpoint_dir', default='./best_models', type=str)
         self.parser.add_argument('--output_dir', default='./experiment', type=str)
