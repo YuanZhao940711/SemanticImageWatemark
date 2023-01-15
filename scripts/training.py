@@ -105,10 +105,10 @@ class Train:
 
         self.dis_scheduler = optim.lr_scheduler.StepLR(optimizer=self.dis_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
         self.gen_scheduler = optim.lr_scheduler.StepLR(optimizer=self.gen_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
-        self.fuser_scheduler = optim.lr_scheduler.StepLR(optimizer=self.fuser_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
-        self.separator_scheduler = optim.lr_scheduler.StepLR(optimizer=self.separator_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
-        self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
-        self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
+        self.fuser_scheduler = optim.lr_scheduler.StepLR(optimizer=self.fuser_optim, step_size=2, gamma=0.2, last_epoch=-1, verbose=True)
+        self.separator_scheduler = optim.lr_scheduler.StepLR(optimizer=self.separator_optim, step_size=2, gamma=0.2, last_epoch=-1, verbose=True)
+        self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=2, gamma=0.2, last_epoch=-1, verbose=True)
+        self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=2, gamma=0.2, last_epoch=-1, verbose=True)
 
 
         ##### Initialize loss functions #####
@@ -183,19 +183,21 @@ class Train:
 
         cover_id, cover_att = self.disentangler(cover)
 
-        secret_feature_ori = self.encoder(secret_ori)
-        secret_feature_ori = l2_norm(secret_feature_ori)
-        secret_feature_null = torch.zeros(cover.shape[0] - secret_feature_ori.shape[0], secret_feature_ori.shape[1]).to(self.args.device)
-        secret_feature_input = torch.cat((secret_feature_ori, secret_feature_null), dim=0)
+        #secret_feature_ori = self.encoder(secret_ori)
+        #secret_feature_ori = l2_norm(secret_feature_ori)
+        #secret_feature_null = torch.zeros(cover.shape[0] - secret_feature_ori.shape[0], secret_feature_ori.shape[1]).to(self.args.device)
+        #secret_feature_input = torch.cat((secret_feature_ori, secret_feature_null), dim=0)
+        secret_feature_input = self.encoder(secret_input)
 
-        feature_fused = self.fuser(cover_id[:cover.shape[0]//2], secret_feature_ori)
-        input_feature = torch.cat((feature_fused, cover_id[cover.shape[0]//2:]))
-        input_feature = l2_norm(input_feature)
+        #feature_fused = self.fuser(cover_id[:cover.shape[0]//2], secret_feature_ori)
+        #input_feature = torch.cat((feature_fused, cover_id[cover.shape[0]//2:]))
+        #input_feature = l2_norm(input_feature)
+        input_feature = self.fuser(cover_id, secret_feature_input)
 
         container = self.generator(inputs=(cover_att, input_feature))
 
         container_id, container_att = self.disentangler(container)
-        container_id = l2_norm(container_id)
+        #container_id = l2_norm(container_id)
 
         secret_feature_output = self.separator(container_id)
         secret_feature_output = l2_norm(secret_feature_output)
@@ -207,8 +209,9 @@ class Train:
             return_latents=False,
         )
 
-        secret_feature_rec = self.encoder(secret_rec[:cover.shape[0]//2])
-        secret_feature_rec = l2_norm(secret_feature_rec)
+        #secret_feature_rec = self.encoder(secret_rec[:cover.shape[0]//2])
+        #secret_feature_rec = l2_norm(secret_feature_rec)
+        secret_feature_rec = self.encoder(secret_rec)
 
         ##### Collect results ##### 
         data_dict = {
@@ -220,7 +223,7 @@ class Train:
             'cover_id': cover_id,
             'input_feature': input_feature,
             'container_id': container_id,
-            'secret_feature_ori': secret_feature_ori,
+            #'secret_feature_ori': secret_feature_ori,
             'secret_feature_rec': secret_feature_rec,
             'secret_feature_input': secret_feature_input,
             'secret_feature_output': secret_feature_output,
@@ -266,7 +269,7 @@ class Train:
             loss_con_att = self.con_att_loss(data_dict['container_att'], data_dict['cover_att'])
             loss_con_id = self.con_id_loss(data_dict['container_id'], data_dict['input_feature'])
             loss_con_rec = self.con_rec_loss(data_dict['container'], data_dict['cover'])
-            loss_sec_feat = 0.5*self.sec_feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_ori']) + 0.5*self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
+            loss_sec_feat = 0.5*self.sec_feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_input']) + 0.5*self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
             loss_sec_mse = self.sec_mse_loss(data_dict['secret_rec'], data_dict['secret_ori'])
             loss_sec_lpips = self.sec_lpips_loss(data_dict['secret_rec'], data_dict['secret_ori'])
 
