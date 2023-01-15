@@ -24,7 +24,7 @@ from stylegan2.model import Generator
 from criteria import loss_functions
 
 from utils.dataset import ImageDataset
-from utils.common import visualize_results, print_log, log_metrics, AverageMeter
+from utils.common import weights_init, visualize_results, print_log, log_metrics, l2_norm, AverageMeter
 
 
 
@@ -35,7 +35,6 @@ class Train:
 
         torch.backends.deterministic = True
         torch.backends.cudnn.benchmark = True
-        torch.autograd.set_detect_anomaly = True
         SEED = self.args.seed
         np.random.seed(SEED)
         torch.manual_seed(SEED)
@@ -52,42 +51,48 @@ class Train:
             self.disentangler.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Dis_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Disentangle Encoder from scratch", self.args.logpath)
-        
+            self.disentangler.apply(weights_init)
+
         # AAD Generator
         self.generator= AADGenerator(c_id=512).to(self.args.device)
         try:
             self.generator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Gen_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training AAD Generator from scratch", self.args.logpath)
-        
+            self.generator.apply(weights_init)
+
         # Fuser 
         self.fuser = Fuser(latent_dim=self.args.latent_dim).to(self.args.device)
         try:
             self.fuser.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Fuser_best.pth')))
         except:
             print_log("[*]Training Fuser from scratch", self.args.logpath)
-        
+            self.fuser.apply(weights_init)
+
         # Separator 
         self.separator = Separator(latent_dim=self.args.latent_dim).to(self.args.device)
         try:
             self.separator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Separator_best.pth')))
         except:
             print_log("[*]Training Separator from scratch", self.args.logpath)
+            self.separator.apply(weights_init)
 
-        # Encoder
+        # Encoder 
         self.encoder = BackboneEncoderUsingLastLayerIntoW(num_layers=50, mode='ir_se').to(self.args.device)
         try:
             self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Encoder from scratch", self.args.logpath)
+            self.encoder.apply(weights_init)
 
-        # Decoder
+        # Decoder 
         #default size=1024, style_dim=512, n_mlp=8
         self.decoder = Generator(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
         try:
             self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
         except:
             print_log("[*]Training Decoder from scratch", self.args.logpath)
+            self.decoder.apply(weights_init)
 
 
         ##### Initialize optimizers #####
@@ -110,9 +115,10 @@ class Train:
         self.con_att_loss = loss_functions.AttLoss().to(self.args.device).eval()
         self.con_id_loss = loss_functions.IdLoss(self.args.conidloss_mode).to(self.args.device).eval()
         self.con_rec_loss = loss_functions.RecConLoss(self.args.conrecloss_mode, self.args.device).eval()
-        self.sec_feat_loss = loss_functions.FeatLoss('MSE', self.args.device).eval()
+        self.sec_feat_loss = loss_functions.FeatLoss(self.args.secfeatloss_mode, self.args.device).eval()
         self.sec_mse_loss = loss_functions.RecSecLoss('l2', self.args.device).eval()
         self.sec_lpips_loss = loss_functions.RecSecLoss('lpips', self.args.device).eval()
+
 
         ##### Initialize data loaders ##### 
         train_cover_transforms = transforms.Compose([
@@ -134,7 +140,10 @@ class Train:
         train_cover_dataset = ImageDataset(root=self.args.train_cover_dir, transforms=train_cover_transforms)
         val_cover_dataset = ImageDataset(root=self.args.val_cover_dir, transforms=val_cover_transforms)
         secret_dataset = ImageDataset(root=self.args.secret_dir, transforms=secret_transforms)
-        
+        print_log(info="[*]Loaded {} training cover images".format(len(train_cover_dataset)), log_path=self.args.logpath, console=True)
+        print_log(info="[*]Loaded {} validation cover images".format(len(val_cover_dataset)), log_path=self.args.logpath, console=True)
+        print_log(info="[*]Loaded {} secret images".format(len(secret_dataset)), log_path=self.args.logpath, console=True)
+
         self.train_cover_loader = DataLoader(
             train_cover_dataset,
             batch_size=self.args.train_bs,
@@ -166,39 +175,55 @@ class Train:
     def forward_pass(self, cover, secret):
         cover = cover.to(self.args.device)
 
+        #secre_ori = secret.to(self.args.device)
         secret = secret.to(self.args.device)
-        secre_ori = secret.repeat(cover.shape[0], 1, 1, 1)
-        
+        secret_ori = secret.repeat(cover.shape[0]//2, 1, 1, 1)
+        secret_null = torch.zeros(cover.shape[0] - secret_ori.shape[0], secret_ori.shape[1], secret_ori.shape[2], secret_ori.shape[3]).to(self.args.device)
+        secret_input = torch.cat((secret_ori, secret_null), dim=0)
+
         cover_id, cover_att = self.disentangler(cover)
 
-        secret_feature_ori = self.encoder(secre_ori)
+        secret_feature_ori = self.encoder(secret_ori)
+        secret_feature_ori = l2_norm(secret_feature_ori)
+        secret_feature_null = torch.zeros(cover.shape[0] - secret_feature_ori.shape[0], secret_feature_ori.shape[1]).to(self.args.device)
+        secret_feature_input = torch.cat((secret_feature_ori, secret_feature_null), dim=0)
 
-        input_feature = self.fuser(cover_id, secret_feature_ori)
+        feature_fused = self.fuser(cover_id[:cover.shape[0]//2], secret_feature_ori)
+        input_feature = torch.cat((feature_fused, cover_id[cover.shape[0]//2:]))
+        input_feature = l2_norm(input_feature)
 
         container = self.generator(inputs=(cover_att, input_feature))
-        
-        container_id, container_att = self.disentangler(container)
 
-        secret_feature_rec = self.separator(container_id)
-        
+        container_id, container_att = self.disentangler(container)
+        container_id = l2_norm(container_id)
+
+        secret_feature_output = self.separator(container_id)
+        secret_feature_output = l2_norm(secret_feature_output)
+
         secret_rec, _ = self.decoder(
-            styles=[secret_feature_rec],
+            styles=[secret_feature_output],
             input_is_latent=True,
             randomize_noise=True,
             return_latents=False,
-            )
+        )
+
+        secret_feature_rec = self.encoder(secret_rec[:cover.shape[0]//2])
+        secret_feature_rec = l2_norm(secret_feature_rec)
 
         ##### Collect results ##### 
         data_dict = {
             'cover': cover,
             'container': container,
-            'secret_ori': secre_ori,
+            #'secret_ori': secre_ori,
+            'secret_ori': secret_input,
             'secret_rec': secret_rec,
             'cover_id': cover_id,
             'input_feature': input_feature,
             'container_id': container_id,
             'secret_feature_ori': secret_feature_ori,
             'secret_feature_rec': secret_feature_rec,
+            'secret_feature_input': secret_feature_input,
+            'secret_feature_output': secret_feature_output,
             'cover_att': cover_att,
             'container_att': container_att,
         }
@@ -222,6 +247,7 @@ class Train:
         Sec_Feat_loss = AverageMeter()
         Sec_Mse_loss = AverageMeter()
         Sec_Lpips_loss = AverageMeter()
+
         Train_losses = AverageMeter()
 
         start_time = time.time()
@@ -240,7 +266,7 @@ class Train:
             loss_con_att = self.con_att_loss(data_dict['container_att'], data_dict['cover_att'])
             loss_con_id = self.con_id_loss(data_dict['container_id'], data_dict['input_feature'])
             loss_con_rec = self.con_rec_loss(data_dict['container'], data_dict['cover'])
-            loss_sec_feat = self.sec_feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_ori'])
+            loss_sec_feat = 0.5*self.sec_feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_ori']) + 0.5*self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
             loss_sec_mse = self.sec_mse_loss(data_dict['secret_rec'], data_dict['secret_ori'])
             loss_sec_lpips = self.sec_lpips_loss(data_dict['secret_rec'], data_dict['secret_ori'])
 
@@ -282,7 +308,7 @@ class Train:
                 'SecFeatLoss': Sec_Feat_loss.avg,
                 'SecMseLoss': Sec_Mse_loss.avg,
                 'SecLpipsLoss': Sec_Lpips_loss.avg,
-                'SumTrainLosses': Train_losses.avg,       
+                'SumTrainLosses': Train_losses.avg,
             }
 
             ##### Board and log losses, and visualize results #####
@@ -336,7 +362,7 @@ class Train:
             loss_con_att = self.con_att_loss(data_dict['container_att'], data_dict['cover_att'])
             loss_con_id = self.con_id_loss(data_dict['container_id'], data_dict['input_feature'])
             loss_con_rec = self.con_rec_loss(data_dict['container'], data_dict['cover'])
-            loss_sec_feat = self.sec_feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_ori'])
+            loss_sec_feat = 0.5*self.sec_feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_ori']) + 0.5*self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
             loss_sec_mse = self.sec_mse_loss(data_dict['secret_rec'], data_dict['secret_ori'])
             loss_sec_lpips = self.sec_lpips_loss(data_dict['secret_rec'], data_dict['secret_ori'])
 
@@ -364,7 +390,7 @@ class Train:
             'SecFeatLoss': Sec_Feat_loss.avg,
             'SecMseLoss': Sec_Mse_loss.avg,
             'SecLpipsLoss': Sec_Lpips_loss.avg,
-            'SumValidateLosses': Val_losses.avg
+            'SumValidateLosses': Val_losses.avg,
         }
         log_metrics(writer=self.writer, data_dict=validate_data_dict, step=epoch+1, prefix='validate')
 
@@ -386,13 +412,14 @@ class Train:
         for epoch in range(self.args.max_epoch):
             self.training(epoch, self.train_cover_loader, self.secret_loader)
             
-            if epoch % self.args.validation_interval == 0:
+            if (epoch+1) % self.args.validation_interval == 0:
                 with torch.no_grad():
                     validation_loss, data_dict = self.validation(epoch, self.val_cover_loader, self.secret_loader)
                 
                 self.dis_scheduler.step()
                 self.gen_scheduler.step()
                 self.fuser_scheduler.step()
+                self.separator_scheduler.step()
                 self.encoder_scheduler.step()
                 self.decoder_scheduler.step()
                 
@@ -410,9 +437,9 @@ class Train:
                 if (self.best_loss is None) or (validation_loss < self.best_loss):
                     self.best_loss = validation_loss
                     self.save_checkpoint(stat_dict, is_best=True)
-                    
+
                     visualize_results(vis_dict=data_dict, dis_num=self.args.display_num, epoch=epoch, prefix='best', save_dir=self.args.bestresults_dir)
-        
+
         self.writer.close()
         print_log("Training finish .......................................................", self.args.logpath)
 

@@ -98,10 +98,10 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
         plt.title('Secret Gap')
 
         fig.add_subplot(gs[img_idx, 6])
-        secret_feature_ori = vis_dict['secret_feature_ori'][img_idx].cpu().detach().numpy()
-        plt.plot(secret_feature_ori)
+        secret_feature_input = vis_dict['secret_feature_input'][img_idx].cpu().detach().numpy()
+        plt.plot(secret_feature_input)
         plt.grid()
-        plt.title('Secret_Feature_Ori')
+        plt.title('Secret_Feature_Input')
 
         fig.add_subplot(gs[img_idx, 7])
         cover_id = vis_dict['cover_id'][img_idx].cpu().detach().numpy()
@@ -124,11 +124,11 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
         plt.title('Container_id CovSim:{:.2f} FusSim:{:.2f}'.format(cover_similarity, fused_similarity))
 
         fig.add_subplot(gs[img_idx, 10])
-        secret_feature_rec = vis_dict['secret_feature_rec'][img_idx].cpu().detach().numpy()
-        plt.plot(secret_feature_rec)
+        secret_feature_output = vis_dict['secret_feature_output'][img_idx].cpu().detach().numpy()
+        plt.plot(secret_feature_output)
         plt.grid()
-        feat_similarity = 1 - spatial.distance.cosine(secret_feature_ori, secret_feature_rec)
-        plt.title('Secret_Feature_Ori FeatSim:{:.2f}'.format(feat_similarity))
+        feat_similarity = 1 - spatial.distance.cosine(secret_feature_input + 1e-5, secret_feature_output)
+        plt.title('Secret_Feature_Output FeatSim:{:.2f}'.format(feat_similarity))
 
     plt.tight_layout()
     fig.savefig(ResultImgName)

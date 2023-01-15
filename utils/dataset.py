@@ -71,10 +71,10 @@ class ImageDataset(Dataset):
             #return self.transforms(image)
             image = Image.open(image_path).convert('RGB')
             image = self.transforms(image)
+            
+            return image
         except:
             self.__getitem__(index + 1)
-
-        return image
 
 
 

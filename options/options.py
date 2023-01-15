@@ -32,6 +32,7 @@ class TrainOptions:
 
         self.parser.add_argument('--conidloss_mode', default='Cos', type=str)
         self.parser.add_argument('--conrecloss_mode', default='lpips', type=str)
+        self.parser.add_argument('--secfeatloss_mode', default='Cos', type=str)
         
         self.parser.add_argument('--con_att_lambda', default=1.0, type=float)
         self.parser.add_argument('--con_id_lambda', default=1.0, type=float)

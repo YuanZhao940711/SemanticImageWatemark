@@ -176,7 +176,7 @@ class GradualStyleEncoder(nn.Module):
 class BackboneEncoderUsingLastLayerIntoW(nn.Module):
     def __init__(self, num_layers, mode='ir', opts=None):
         super(BackboneEncoderUsingLastLayerIntoW, self).__init__()
-        print('Using BackboneEncoderUsingLastLayerIntoW')
+        #print('[*]Using BackboneEncoderUsingLastLayerIntoW')
         assert num_layers in [50, 100, 152], 'num_layers should be 50,100, or 152'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
         blocks = get_blocks(num_layers)

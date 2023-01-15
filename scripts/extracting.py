@@ -49,7 +49,7 @@ class Extract:
         self.separator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Separator_best.pth'), map_location=self.args.device), strict=True)
 
         # Decoder
-        self.decoder = Generator(latent_dim=self.args.latent_dim).to(self.args.device)
+        self.decoder = Generator(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
         self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
 
         self.disentangler.eval()
