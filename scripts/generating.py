@@ -18,7 +18,7 @@ from network.Fuser import Fuser
 from network.Encoder import BackboneEncoderUsingLastLayerIntoW
 
 from utils.dataset import ImageDataset
-from utils.common import tensor2img, alignment, l2_norm
+from utils.common import tensor2img
 
 
 

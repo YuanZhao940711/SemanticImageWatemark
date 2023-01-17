@@ -17,7 +17,7 @@ from network.Separator import Separator
 from stylegan2.model import Generator
 
 from utils.dataset import ImageDataset
-from utils.common import tensor2img, alignment
+from utils.common import tensor2img, l2_norm
 
 
 
@@ -85,7 +85,7 @@ class Extract:
             container_id, _ = self.disentangler(container_batch)
 
             secret_feature_rec = self.separator(container_id)
-            #secret_feature_rec = l2_norm(secret_feature_rec)
+            secret_feature_rec = l2_norm(secret_feature_rec)
 
             secret_rec_batch, _ = self.decoder(
                 styles=[secret_feature_rec],
