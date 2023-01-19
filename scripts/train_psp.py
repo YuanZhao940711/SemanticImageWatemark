@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from options.options import TrainPspOptions
 
-from network.Encoder import BackboneEncoderUsingLastLayerIntoWPlus
+from network.Encoder import PspEncoder, MappingNetwork
 from stylegan2.model import Generator
 
 from criteria.lpips.lpips import LPIPS
@@ -42,28 +42,43 @@ class Train:
 
         ##### Initialize networks and load pretrained models #####
         # Encoder
-        self.encoder = BackboneEncoderUsingLastLayerIntoWPlus(50, 'ir_se').to(self.args.device)
+        self.encoder = PspEncoder(50, 'ir_se').to(self.args.device)
         try:
             self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
+            print_log("[*]Successfully loaded Encoder's pre-trained model", self.args.logpath)
         except:
             print_log("[*]Training Encoder from scratch", self.args.logpath)
             self.encoder.apply(weights_init)
 
+        # Mapper
+        self.mapper = MappingNetwork().to(self.args.device)
+        try:
+            self.mapper.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Mapper_best.pth'), map_location=self.args.device), strict=True)
+            print_log("[*]Successfully loaded Mapper's pre-trained model", self.args.logpath)
+        except:
+            print_log("[*]Training Mapper from scratch", self.args.logpath)
+            self.mapper.apply(weights_init)
+
         # Decoder
         #default size=1024, style_dim=512, n_mlp=8
         self.decoder = Generator(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
+        #self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'stylegan2-ffhq-config-f.pt'), map_location=self.args.device), strict=False)
+        #"""
         try:
             self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
+            print_log("[*]Successfully loaded Decoder's pre-trained model", self.args.logpath)
         except:
             print_log("[*]Training Decoder from scratch", self.args.logpath)
             self.decoder.apply(weights_init)
+        #"""
 
         ##### Initialize optimizers #####
         self.encoder_optim = optim.Adam(self.encoder.parameters(), lr=self.args.encoder_lr, betas=(0.5, 0.999), weight_decay=0)
+        self.mapper_optim = optim.Adam(self.mapper.parameters(), lr=self.args.mapper_lr, betas=(0.5, 0.999), weight_decay=0)
         self.decoder_optim = optim.Adam(self.decoder.parameters(), lr=self.args.decoder_lr, betas=(0.5, 0.999), weight_decay=0)
 
-        self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
-        self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
+        #self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
+        #self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
 
         ##### Initialize loss functions #####
         self.mse_loss = nn.MSELoss().to(self.args.device).eval()
@@ -107,10 +122,12 @@ class Train:
     def forward_pass(self, image_ori):
         image_ori = image_ori.to(self.args.device)
         
-        image_feature = self.encoder(image_ori) # image_feature.shape = bsx18x512
+        image_feature = self.encoder(image_ori) # image_feature.shape = torch.Size([8, 512])
+
+        image_feature_plus = self.mapper(image_feature) # image_feature.shape = torch.Size([8, 18, 512])
         
         image_rec, _ = self.decoder(
-            styles=[image_feature],
+            styles=[image_feature_plus],
             input_is_latent=True,
             randomize_noise=True,
             return_latents=False,
@@ -127,6 +144,7 @@ class Train:
 
     def training(self, epoch, image_loader):
         self.encoder.train()
+        self.mapper.train()
         self.decoder.train()
 
         batch_time = AverageMeter()
@@ -148,9 +166,13 @@ class Train:
             SumTrainLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips
 
             self.encoder_optim.zero_grad()
+            self.mapper_optim.zero_grad()
             self.decoder_optim.zero_grad()
+            
             SumTrainLosses.backward()
+            
             self.encoder_optim.step()
+            self.mapper_optim.step()
             self.decoder_optim.step()
             
             ##### Log losses and computation time #####
@@ -186,6 +208,7 @@ class Train:
 
     def validation(self, epoch, image_loader):
         self.encoder.eval()
+        self.mapper.eval()
         self.decoder.eval()
 
         batch_time = AverageMeter()
@@ -250,12 +273,13 @@ class Train:
                 with torch.no_grad():
                     validation_loss, data_dict = self.validation(epoch, self.val_loader)
 
-                self.encoder_scheduler.step()
-                self.decoder_scheduler.step()
+                #self.encoder_scheduler.step()
+                #self.decoder_scheduler.step()
                 
                 stat_dict = {
                     'epoch': epoch + 1,
                     'encoder_state_dict': self.encoder.state_dict(),
+                    'mapper_state_dict': self.mapper.state_dict(),
                     'decoder_state_dict': self.decoder.state_dict(),
                 }
                 self.save_checkpoint(stat_dict, is_best=False)
@@ -273,6 +297,7 @@ class Train:
     def save_checkpoint(self, state, is_best):
         if is_best:
             torch.save(state['encoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Encoder_best.pth'))
+            torch.save(state['mapper_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Mapper_best.pth'))
             torch.save(state['decoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Decoder_best.pth'))
         else:
             torch.save(state, os.path.join(self.args.checkpoint_savedir, 'checkpoint.pth.tar'))

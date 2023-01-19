@@ -213,7 +213,7 @@ class BackboneEncoderUsingLastLayerIntoW(nn.Module):
 class BackboneEncoderUsingLastLayerIntoWPlus(nn.Module):
     def __init__(self, num_layers, mode='ir'):
         super(BackboneEncoderUsingLastLayerIntoWPlus, self).__init__()
-        print('Using BackboneEncoderUsingLastLayerIntoWPlus')
+        #print('Using BackboneEncoderUsingLastLayerIntoWPlus')
         assert num_layers in [50, 100, 152], 'num_layers should be 50,100, or 152'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
         blocks = get_blocks(num_layers)
@@ -245,8 +245,70 @@ class BackboneEncoderUsingLastLayerIntoWPlus(nn.Module):
 
     def forward(self, x):
         x = self.input_layer(x)
-        x = self.body(x)
+        x = self.body(x) # bs*512
         x = self.output_layer(x)
         x = self.linear(x)
         x = x.view(-1, self.n_styles, 512)
+        return x
+
+
+
+class PspEncoder(nn.Module):
+    def __init__(self, num_layers, mode='ir'):
+        super(PspEncoder, self).__init__()
+        assert num_layers in [50, 100, 152], 'num_layers should be 50,100, or 152'
+        assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
+        blocks = get_blocks(num_layers)
+        if mode == 'ir':
+            unit_module = bottleneck_IR
+        elif mode == 'ir_se':
+            unit_module = bottleneck_IR_SE
+
+        self.input_layer = nn.Sequential(
+            nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.PReLU(64),
+            )
+
+        modules = []
+        for block in blocks:
+            for bottleneck in block:
+                modules.append(unit_module(bottleneck.in_channel,
+                                           bottleneck.depth,
+                                           bottleneck.stride))
+        self.body = nn.Sequential(*modules)
+
+        self.output_layer = nn.Sequential(
+            nn.BatchNorm2d(num_features=512),
+            nn.AdaptiveAvgPool2d((7,7)),
+            nn.Flatten(),
+            nn.Linear(in_features=512 * 7 * 7, out_features=512),
+        )
+
+    def forward(self, x):
+        x = self.input_layer(x)
+        x = self.body(x) # bsx512x16x16
+        x = self.output_layer(x) # bsx512
+        return x
+
+
+
+class MappingNetwork(nn.Module):
+    def __init__(self):
+        super(MappingNetwork, self).__init__()
+
+        """
+        self.body = nn.Sequential(
+            nn.BatchNorm2d(num_features=512),
+            nn.AdaptiveAvgPool2d((7,7)),
+            nn.Flatten(),
+            nn.Linear(in_features=512 * 7 * 7, out_features=512),
+        )
+        """
+        self.linear = EqualLinear(512, 512 * 18, lr_mul=1)
+
+    def forward(self, x):
+        #x = self.body(x)
+        x = self.linear(x)
+        x = x.view(-1, 18, 512)
         return x
