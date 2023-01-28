@@ -173,6 +173,7 @@ class TrainPspOptions:
 
         self.parser.add_argument('--mse_lambda', default=1.0, type=float)
         self.parser.add_argument('--lpips_lambda', default=1.0, type=float)
+        self.parser.add_argument('--feat_lambda', default=1.0, type=float)
 
         self.parser.add_argument('--board_interval', default=50, type=int)
         self.parser.add_argument('--image_interval', default=1000, type=int)
@@ -238,6 +239,7 @@ class TrainDisOptions:
         self.parser.add_argument('--att_lambda', default=1.0, type=float)
         self.parser.add_argument('--id_lambda', default=1.0, type=float)
         self.parser.add_argument('--rec_lambda', default=1.0, type=float)
+        self.parser.add_argument('--kl_lambda', default=1.0, type=float)
 
         self.parser.add_argument('--board_interval', default=50, type=int)
         self.parser.add_argument('--image_interval', default=1000, type=int)

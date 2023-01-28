@@ -61,16 +61,18 @@ class Train:
 
 
         ##### Initialize optimizers #####
-        self.dis_optim = optim.Adam(self.disentangler.parameters(), lr=self.args.dis_lr, betas=(0.5, 0.999))
-        self.gen_optim = optim.Adam(self.generator.parameters(), lr=self.args.gen_lr, betas=(0.5, 0.999))
+        self.dis_optim = optim.Adam(self.disentangler.parameters(), lr=self.args.dis_lr, betas=(0.9, 0.999))
+        self.gen_optim = optim.Adam(self.generator.parameters(), lr=self.args.gen_lr, betas=(0.9, 0.999))
 
         #self.dis_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.dis_optim, gamma=0.9, last_epoch=-1, verbose=True)
         #self.gen_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.gen_optim, gamma=0.9, last_epoch=-1, verbose=True)
+
 
         ##### Initialize loss functions #####
         self.att_loss = loss_functions.AttLoss().to(self.args.device).eval()
         self.id_loss = loss_functions.IdLoss(self.args.idloss_mode).to(self.args.device).eval()
         self.rec_loss = loss_functions.RecConLoss(self.args.recloss_mode, self.args.device).eval()
+        self.kl_loss = loss_functions.KlLoss(self.args.device).eval()
 
 
         ##### Initialize data loaders ##### 
@@ -111,26 +113,35 @@ class Train:
         self.best_loss = None
 
 
+
     def forward_pass(self, image_ori):
         image_ori = image_ori.to(self.args.device)
 
-        image_ori_id, image_ori_att = self.disentangler(image_ori)
+        imgori_id_mu, imgori_id_logvar, image_ori_id, image_ori_att = self.disentangler(image_ori)
+        image_ori_id_norm = l2_norm(image_ori_id)
 
-        image_rec = self.generator(inputs=(image_ori_att, image_ori_id))
+        #image_rec = self.generator(inputs=(image_ori_att, image_ori_id))
+        image_rec = self.generator(inputs=(image_ori_att, image_ori_id_norm))
 
-        image_rec_id, image_rec_att = self.disentangler(image_rec)
+        _, _, image_rec_id, image_rec_att = self.disentangler(image_rec)
+        image_rec_id_norm = l2_norm(image_rec_id)
 
         ##### Collect results ##### 
         data_dict = {
             'image_ori': image_ori,
-            'image_rec': image_rec,
+            'imgori_id_mu': imgori_id_mu,
+            'imgori_id_logvar': imgori_id_logvar,
             'image_ori_id': image_ori_id,
             'image_ori_att': image_ori_att,
+            'image_ori_id_norm': image_ori_id_norm,
+            'image_rec': image_rec,
             'image_rec_id': image_rec_id,
             'image_rec_att': image_rec_att,
+            'image_rec_id_norm': image_rec_id_norm,
         }
 
         return data_dict
+
 
 
     def training(self, epoch, image_loader):
@@ -142,6 +153,7 @@ class Train:
         Att_loss = AverageMeter()
         Id_loss = AverageMeter()
         Rec_loss = AverageMeter()
+        Kl_loss = AverageMeter()
 
         Train_losses = AverageMeter()
 
@@ -152,10 +164,12 @@ class Train:
             data_dict = self.forward_pass(image_batch)
 
             loss_att = self.att_loss(data_dict['image_rec_att'], data_dict['image_ori_att'])
-            loss_id = self.id_loss(data_dict['image_rec_id'], data_dict['image_ori_id'])
+            #loss_id = self.id_loss(data_dict['image_rec_id'], data_dict['image_ori_id'])
+            loss_id = self.id_loss(data_dict['image_rec_id_norm'], data_dict['image_ori_id_norm'])
             loss_rec = self.rec_loss(data_dict['image_rec'], data_dict['image_ori'])
+            loss_idkl = self.kl_loss(data_dict['imgori_id_mu'], data_dict['imgori_id_logvar'])
 
-            Sum_train_losses = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*loss_rec
+            Sum_train_losses = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*loss_rec + self.args.kl_lambda*loss_idkl
 
             self.dis_optim.zero_grad()
             self.gen_optim.zero_grad()
@@ -169,6 +183,7 @@ class Train:
             Att_loss.update(loss_att.item(), self.args.train_bs)
             Id_loss.update(loss_id.item(), self.args.train_bs)
             Rec_loss.update(loss_rec.item(), self.args.train_bs)
+            Kl_loss.update(loss_idkl.item(), self.args.train_bs)
             Train_losses.update(Sum_train_losses.item(), self.args.train_bs)
 
             batch_time.update(time.time()-start_time)
@@ -178,13 +193,14 @@ class Train:
                 'AttLoss': Att_loss.avg,
                 'IdLoss': Id_loss.avg,
                 'RecLoss': Rec_loss.avg,
+                'KlLoss': Kl_loss.avg,
                 'SumTrainLosses': Train_losses.avg,
             }
 
             ##### Board and log losses, and visualize results #####
             if (self.global_train_steps+1) % self.args.board_interval == 0:
-                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
-                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Att_loss.val, Id_loss.val, Rec_loss.val, Train_losses.val, batch_time.val
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_loss: {:.6f} Kl_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Att_loss.val, Id_loss.val, Rec_loss.val, Kl_loss.val, Train_losses.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
                 log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
@@ -197,6 +213,11 @@ class Train:
             if train_iter == self.args.max_train_iters-1:
                 break
 
+        train_epoch_log = "[{:d}/{:d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_loss: {:.6f} Kl_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch+1, self.args.max_epoch, Att_loss.avg, Id_loss.avg, Rec_loss.avg, Kl_loss.avg, Train_losses.avg, batch_time.sum
+        )
+        print_log(info=train_epoch_log, log_path=self.args.logpath, console=True)
+
 
     def validation(self, epoch, image_loader):
         self.disentangler.eval()
@@ -207,6 +228,7 @@ class Train:
         Att_loss = AverageMeter()
         Id_loss = AverageMeter()
         Rec_loss = AverageMeter()
+        Kl_loss = AverageMeter()
         Val_losses = AverageMeter()
 
         start_time = time.time()
@@ -217,15 +239,18 @@ class Train:
 
             # Calculate losses
             loss_att = self.att_loss(data_dict['image_rec_att'], data_dict['image_ori_att'])
-            loss_id = self.id_loss(data_dict['image_rec_id'], data_dict['image_ori_id'])
+            #loss_id = self.id_loss(data_dict['image_rec_id'], data_dict['image_ori_id'])
+            loss_id = self.id_loss(data_dict['image_rec_id_norm'], data_dict['image_ori_id_norm'])
             loss_rec = self.rec_loss(data_dict['image_rec'], data_dict['image_ori'])
+            loss_idkl = self.kl_loss(data_dict['imgori_id_mu'], data_dict['imgori_id_logvar'])
 
-            sum_val_loss = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*loss_rec
+            sum_val_loss = self.args.att_lambda*loss_att + self.args.id_lambda*loss_id + self.args.rec_lambda*loss_rec + self.args.kl_lambda*loss_idkl
 
             ##### Log losses and computation time #####
             Att_loss.update(loss_att.item(), self.args.train_bs)
             Id_loss.update(loss_id.item(), self.args.train_bs)
             Rec_loss.update(loss_rec.item(), self.args.train_bs)
+            Kl_loss.update(loss_idkl.item(), self.args.train_bs)
             Val_losses.update(sum_val_loss.item(), self.args.train_bs)
 
             batch_time.update(time.time() - start_time)
@@ -238,12 +263,13 @@ class Train:
             'AttLoss': Att_loss.avg,
             'IdLoss': Id_loss.avg,
             'RecLoss': Rec_loss.avg,
+            'KlLoss': Kl_loss.avg,
             'SumValidateLosses': Val_losses.avg,
         }
         log_metrics(writer=self.writer, data_dict=validate_data_dict, step=epoch+1, prefix='validate')
 
-        val_log = "Validation[{:d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
-            epoch+1, Att_loss.avg, Id_loss.avg, Rec_loss.avg, Val_losses.avg, batch_time.avg
+        val_log = "Validation[{:d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_loss: {:.6f} Rec_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch+1, Att_loss.avg, Id_loss.avg, Rec_loss.avg, Kl_loss.avg, Val_losses.avg, batch_time.avg
         )
         print_log(info=val_log, log_path=self.args.logpath, console=True)
 

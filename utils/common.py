@@ -192,8 +192,8 @@ def visualize_psp_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None,
     rec_gap = vis_dict['image_ori'] - vis_dict['image_rec']
     rec_gap = (rec_gap*10 + 0.5).clamp_(0.0, 1.0)
 
-    fig = plt.figure(figsize=(12, 3*dis_num))
-    gs = fig.add_gridspec(nrows=dis_num, ncols=3)
+    fig = plt.figure(figsize=(28, 4*dis_num))
+    gs = fig.add_gridspec(nrows=dis_num, ncols=7)
     for img_idx in range(dis_num):
         fig.add_subplot(gs[img_idx, 0])
         cover = tensor2img(vis_dict['image_ori'][img_idx])
@@ -209,6 +209,30 @@ def visualize_psp_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None,
         covgap_img = tensor2img(rec_gap[img_idx])
         plt.imshow(covgap_img)
         plt.title('Image Rec Gap')
+
+        fig.add_subplot(gs[img_idx, 3])
+        image_feature_ori = vis_dict['image_feature_ori'][img_idx].cpu().detach().numpy()
+        plt.plot(image_feature_ori)
+        plt.grid()
+        plt.title('Image original feature')
+
+        fig.add_subplot(gs[img_idx, 4])
+        image_feature_ori_norm = vis_dict['image_feature_ori_norm'][img_idx].cpu().detach().numpy()
+        plt.plot(image_feature_ori_norm)
+        plt.grid()
+        plt.title('Image original feature norm')
+
+        fig.add_subplot(gs[img_idx, 5])
+        image_feature_rec = vis_dict['image_feature_rec'][img_idx].cpu().detach().numpy()
+        plt.plot(image_feature_rec)
+        plt.grid()
+        plt.title('Image reconstructed feature')
+
+        fig.add_subplot(gs[img_idx, 6])
+        image_feature_rec_norm = vis_dict['image_feature_rec_norm'][img_idx].cpu().detach().numpy()
+        plt.plot(image_feature_rec_norm)
+        plt.grid()
+        plt.title('Image reconstructed feature norm')
 
     plt.tight_layout()
     fig.savefig(ResultImgName)
@@ -229,8 +253,8 @@ def visualize_dis_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None,
     rec_gap = vis_dict['image_ori'] - vis_dict['image_rec']
     rec_gap = (rec_gap*10 + 0.5).clamp_(0.0, 1.0)
 
-    fig = plt.figure(figsize=(12, 3*dis_num))
-    gs = fig.add_gridspec(nrows=dis_num, ncols=3)
+    fig = plt.figure(figsize=(28, 4*dis_num))
+    gs = fig.add_gridspec(nrows=dis_num, ncols=7)
     for img_idx in range(dis_num):
         fig.add_subplot(gs[img_idx, 0])
         cover = tensor2img(vis_dict['image_ori'][img_idx])
@@ -246,6 +270,30 @@ def visualize_dis_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None,
         covgap_img = tensor2img(rec_gap[img_idx])
         plt.imshow(covgap_img)
         plt.title('Image Rec Gap')
+
+        fig.add_subplot(gs[img_idx, 3])
+        image_ori_id = vis_dict['image_ori_id'][img_idx].cpu().detach().numpy()
+        plt.plot(image_ori_id)
+        plt.grid()
+        plt.title('Image original id')
+
+        fig.add_subplot(gs[img_idx, 4])
+        image_ori_id_norm = vis_dict['image_ori_id_norm'][img_idx].cpu().detach().numpy()
+        plt.plot(image_ori_id_norm)
+        plt.grid()
+        plt.title('Image original id norm')
+
+        fig.add_subplot(gs[img_idx, 5])
+        image_rec_id = vis_dict['image_rec_id'][img_idx].cpu().detach().numpy()
+        plt.plot(image_rec_id)
+        plt.grid()
+        plt.title('Image reconstructed id')
+
+        fig.add_subplot(gs[img_idx, 6])
+        image_rec_id_norm = vis_dict['image_rec_id_norm'][img_idx].cpu().detach().numpy()
+        plt.plot(image_rec_id_norm)
+        plt.grid()
+        plt.title('Image reconstructed id norm')
 
     plt.tight_layout()
     fig.savefig(ResultImgName)

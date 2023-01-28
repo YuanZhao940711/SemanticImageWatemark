@@ -18,13 +18,13 @@ from network.DisentanglementEncoder import DisentanglementEncoder
 from network.AAD import AADGenerator
 from network.Fuser import Fuser
 from network.Separator import Separator
-from network.Encoder import PspEncoder, MappingNetwork
-from stylegan2.model import Generator
+from network.Encoder import PspEncoder
+from stylegan2.model import Stylegan2Decoder
 
 from criteria import loss_functions
 
 from utils.dataset import ImageDataset
-from utils.common import weights_init, visualize_results, print_log, log_metrics, l2_norm, AverageMeter
+from utils.common import weights_init, visualize_results, print_log, log_metrics, AverageMeter
 
 
 
@@ -51,7 +51,9 @@ class Train:
             self.disentangler.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Dis_best.pth'), map_location=self.args.device), strict=True)
             print_log("[*]Successfully loaded Disentangler's pre-trained model", self.args.logpath)
         except:
-            raise ValueError("[*]Unable to load Disentangler's pre-trained model")
+            #raise ValueError("[*]Unable to load Disentangler's pre-trained model")
+            print_log("[*]Training Disentangle Encoder from scratch", self.args.logpath)
+            self.disentangler.apply(weights_init)
 
         # AAD Generator
         self.generator= AADGenerator(c_id=512).to(self.args.device)
@@ -59,7 +61,9 @@ class Train:
             self.generator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Gen_best.pth'), map_location=self.args.device), strict=True)
             print_log("[*]Successfully loaded Generator's pre-trained model", self.args.logpath)
         except:
-            raise ValueError("[*]Unable to load Generator's pre-trained model")
+            #raise ValueError("[*]Unable to load Generator's pre-trained model")
+            print_log("[*]Training AAD Generator from scratch", self.args.logpath)
+            self.generator.apply(weights_init)
         
         # Encoder 
         self.encoder = PspEncoder(num_layers=50, mode='ir_se').to(self.args.device)
@@ -67,25 +71,20 @@ class Train:
             self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
             print_log("[*]Successfully loaded Encoder's pre-trained model", self.args.logpath)
         except:
-            raise ValueError("[*]Unable to load Encoder's pre-trained model")
-
-        # Mapper
-        self.mapper = MappingNetwork().to(self.args.device)
-        try:
-            self.mapper.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Mapper_best.pth'), map_location=self.args.device), strict=True)
-            print_log("[*]Successfully loaded Mapper's pre-trained model", self.args.logpath)
-        except:
-            print_log("[*]Training Mapper from scratch", self.args.logpath)
-            self.mapper.apply(weights_init)
+            #raise ValueError("[*]Unable to load Encoder's pre-trained model")
+            print_log("[*]Training Encoder from scratch", self.args.logpath)
+            self.encoder.apply(weights_init)
 
         # Decoder 
         #default size=1024, style_dim=512, n_mlp=8
-        self.decoder = Generator(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
+        self.decoder = Stylegan2Decoder(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
         try:
             self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
             print_log("[*]Successfully loaded Decoder's pre-trained model", self.args.logpath)
         except:
-            raise ValueError("[*]Unable to load Decoder's pre-trained model")
+            #raise ValueError("[*]Unable to load Decoder's pre-trained model")
+            print_log("[*]Training Decoder from scratch", self.args.logpath)
+            self.decoder.apply(weights_init)
 
         # Fuser 
         self.fuser = Fuser(latent_dim=self.args.latent_dim).to(self.args.device)
@@ -93,6 +92,7 @@ class Train:
             self.fuser.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Fuser_best.pth')))
             print_log("[*]Successfully loaded Fuser's pre-trained model", self.args.logpath)
         except:
+            #raise ValueError("[*]Unable to load Fuser's pre-trained model")
             print_log("[*]Training Fuser from scratch", self.args.logpath)
             self.fuser.apply(weights_init)
 
@@ -102,28 +102,34 @@ class Train:
             self.separator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Separator_best.pth')))
             print_log("[*]Successfully loaded Separator's pre-trained model", self.args.logpath)
         except:
+            #raise ValueError("[*]Unable to load Separator's pre-trained model")
             print_log("[*]Training Separator from scratch", self.args.logpath)
             self.separator.apply(weights_init)
 
 
         ##### Initialize optimizers #####
-        #self.dis_optim = optim.Adam(self.disentangler.parameters(), lr=self.args.dis_lr, betas=(0.5, 0.999))
-        #self.gen_optim = optim.Adam(self.generator.parameters(), lr=self.args.gen_lr, betas=(0.5, 0.999))
-        #self.encoder_optim = optim.Adam(self.encoder.parameters(), lr=self.args.encoder_lr, betas=(0.5, 0.999))
-        #self.decoder_optim = optim.Adam(self.decoder.parameters(), lr=self.args.decoder_lr, betas=(0.5, 0.999))
-        self.fuser_optim = optim.Adam(self.fuser.parameters(), lr=self.args.fuser_lr, betas=(0.5, 0.999))
-        self.separator_optim = optim.Adam(self.separator.parameters(), lr=self.args.separator_lr, betas=(0.5, 0.999))
-        
-        #self.dis_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.dis_optim, gamma=0.9, last_epoch=-1, verbose=True)
-        #self.gen_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.gen_optim, gamma=0.9, last_epoch=-1, verbose=True)
-        #self.encoder_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.encoder_optim, gamma=0.9, last_epoch=-1, verbose=True)
-        #self.decoder_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.decoder_optim, gamma=0.9, last_epoch=-1, verbose=True)
-        #self.fuser_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.fuser_optim, gamma=0.9, last_epoch=-1, verbose=True)
-        #self.separator_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.separator_optim, gamma=0.9, last_epoch=-1, verbose=True)
-        
-        #self.fuser_scheduler = optim.lr_scheduler.StepLR(optimizer=self.fuser_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1,verbose=True)
-        #self.separator_scheduler = optim.lr_scheduler.StepLR(optimizer=self.fuser_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
+        self.dis_optim = optim.Adam(self.disentangler.parameters(), lr=self.args.dis_lr, betas=(0.9, 0.999))
+        self.encoder_optim = optim.Adam(self.encoder.parameters(), lr=self.args.encoder_lr, betas=(0.9, 0.999))
+        self.gen_optim = optim.Adam(self.generator.parameters(), lr=self.args.gen_lr, betas=(0.9, 0.999))
+        self.decoder_optim = optim.Adam(self.decoder.parameters(), lr=self.args.decoder_lr, betas=(0.9, 0.999))
+        self.fuser_optim = optim.Adam(self.fuser.parameters(), lr=self.args.fuser_lr, betas=(0.9, 0.999))
+        self.separator_optim = optim.Adam(self.separator.parameters(), lr=self.args.separator_lr, betas=(0.9, 0.999))
 
+        self.dis_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.dis_optim, gamma=0.8, last_epoch=-1, verbose=True)
+        self.encoder_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.encoder_optim, gamma=0.8, last_epoch=-1, verbose=True)
+        self.gen_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.gen_optim, gamma=0.8, last_epoch=-1, verbose=True)
+        self.decoder_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.decoder_optim, gamma=0.8, last_epoch=-1, verbose=True)
+        self.fuser_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.fuser_optim, gamma=0.8, last_epoch=-1, verbose=True)
+        self.separator_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.separator_optim, gamma=0.8, last_epoch=-1, verbose=True)
+
+        """
+        self.dis_scheduler = optim.lr_scheduler.StepLR(optimizer=self.dis_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1,verbose=True)
+        self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1,verbose=True)
+        self.gen_scheduler = optim.lr_scheduler.StepLR(optimizer=self.gen_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1,verbose=True)
+        self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
+        self.fuser_scheduler = optim.lr_scheduler.StepLR(optimizer=self.fuser_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1,verbose=True)
+        self.separator_scheduler = optim.lr_scheduler.StepLR(optimizer=self.separator_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
+        """
 
         ##### Initialize loss functions #####
         self.con_att_loss = loss_functions.AttLoss().to(self.args.device).eval()
@@ -205,10 +211,8 @@ class Train:
 
         secret_feature_output = self.separator(container_id)
 
-        secret_feature_output_plus = self.mapper(secret_feature_output)
-
         secret_rec, _ = self.decoder(
-            styles=[secret_feature_output_plus],
+            styles=[secret_feature_output],
             input_is_latent=True,
             randomize_noise=True,
             return_latents=False,
@@ -236,6 +240,10 @@ class Train:
 
 
     def training(self, epoch, cover_loader, secret_loader):
+        self.disentangler.train()
+        self.encoder.train()
+        self.generator.train()
+        self.decoder.train()
         self.fuser.train()
         self.separator.train()
 
@@ -274,19 +282,19 @@ class Train:
             Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec \
             + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
 
-            #self.dis_optim.zero_grad()
-            #self.gen_optim.zero_grad()
-            #self.encoder_optim.zero_grad()
-            #self.decoder_optim.zero_grad()
+            self.dis_optim.zero_grad()
+            self.encoder_optim.zero_grad()
+            self.gen_optim.zero_grad()
+            self.decoder_optim.zero_grad()
             self.fuser_optim.zero_grad()
             self.separator_optim.zero_grad()
 
             Sum_train_losses.backward()
 
-            #self.dis_optim.step()
-            #self.gen_optim.step()
-            #self.encoder_optim.step()
-            #self.decoder_optim.step()
+            self.dis_optim.step()
+            self.encoder_optim.step()
+            self.gen_optim.step()
+            self.decoder_optim.step()
             self.fuser_optim.step()
             self.separator_optim.step()
             
@@ -335,6 +343,10 @@ class Train:
 
 
     def validation(self, epoch, cover_loader, secret_loader):
+        self.disentangler.eval()
+        self.encoder.eval()
+        self.generator.eval()
+        self.decoder.eval()
         self.fuser.eval()
         self.separator.eval()
 
@@ -412,32 +424,30 @@ class Train:
 
         self.global_train_steps = 0
 
-        self.disentangler.eval()
-        self.generator.eval()
-        self.encoder.eval()
-        self.decoder.eval()
-        self.mapper.eval()
-
         for epoch in range(self.args.max_epoch):
+            """
+            with torch.autograd.detect_anomaly(check_nan=True):
+                self.training(epoch, self.train_cover_loader, self.secret_loader)
+            """
             self.training(epoch, self.train_cover_loader, self.secret_loader)
             
             if (epoch+1) % self.args.validation_interval == 0:
                 with torch.no_grad():
                     validation_loss, data_dict = self.validation(epoch, self.val_cover_loader, self.secret_loader)
                 
-                #self.dis_scheduler.step()
-                #self.gen_scheduler.step()
-                #self.encoder_scheduler.step()
-                #self.decoder_scheduler.step()
-                #self.fuser_scheduler.step()
-                #self.separator_scheduler.step()
+                self.dis_scheduler.step()
+                self.encoder_scheduler.step()
+                self.gen_scheduler.step()
+                self.decoder_scheduler.step()
+                self.fuser_scheduler.step()
+                self.separator_scheduler.step()
                 
                 stat_dict = {
                     'epoch': epoch + 1,
-                    #'dis_state_dict': self.disentangler.state_dict(),
-                    #'gen_state_dict': self.generator.state_dict(),
-                    #'encoder_state_dict': self.encoder.state_dict(),
-                    #'decoder_state_dict': self.decoder.state_dict(),
+                    'dis_state_dict': self.disentangler.state_dict(),
+                    'encoder_state_dict': self.encoder.state_dict(),
+                    'gen_state_dict': self.generator.state_dict(),
+                    'decoder_state_dict': self.decoder.state_dict(),
                     'fuser_state_dict': self.fuser.state_dict(),
                     'separator_state_dict': self.separator.state_dict(),
                 }
@@ -455,10 +465,10 @@ class Train:
 
     def save_checkpoint(self, state, is_best):
         if is_best:
-            #torch.save(state['dis_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Dis_best.pth'))
-            #torch.save(state['gen_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Gen_best.pth'))
-            #torch.save(state['encoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Encoder_best.pth'))
-            #torch.save(state['decoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Decoder_best.pth'))
+            torch.save(state['dis_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Dis_best.pth'))
+            torch.save(state['encoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Encoder_best.pth'))
+            torch.save(state['gen_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Gen_best.pth'))
+            torch.save(state['decoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Decoder_best.pth'))
             torch.save(state['fuser_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Fuser_best.pth'))
             torch.save(state['separator_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Separator_best.pth'))
         else:

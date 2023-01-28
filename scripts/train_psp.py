@@ -15,13 +15,14 @@ from torch.utils.tensorboard import SummaryWriter
 
 from options.options import TrainPspOptions
 
-from network.Encoder import PspEncoder, MappingNetwork
-from stylegan2.model import Generator
+from network.Encoder import PspEncoder
+from stylegan2.model import Stylegan2Decoder
 
+from criteria import loss_functions
 from criteria.lpips.lpips import LPIPS
 
 from utils.dataset import ImageDataset
-from utils.common import weights_init, visualize_psp_results, print_log, log_metrics, AverageMeter
+from utils.common import weights_init, visualize_psp_results, print_log, log_metrics, l2_norm, AverageMeter
 
 
 
@@ -50,19 +51,9 @@ class Train:
             print_log("[*]Training Encoder from scratch", self.args.logpath)
             self.encoder.apply(weights_init)
 
-        # Mapper
-        self.mapper = MappingNetwork().to(self.args.device)
-        try:
-            self.mapper.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Mapper_best.pth'), map_location=self.args.device), strict=True)
-            print_log("[*]Successfully loaded Mapper's pre-trained model", self.args.logpath)
-        except:
-            print_log("[*]Training Mapper from scratch", self.args.logpath)
-            self.mapper.apply(weights_init)
-
         # Decoder
         #default size=1024, style_dim=512, n_mlp=8
-        self.decoder = Generator(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
-        #self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'stylegan2-ffhq-config-f.pt'), map_location=self.args.device), strict=False)
+        self.decoder = Stylegan2Decoder(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
         #"""
         try:
             self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
@@ -73,9 +64,8 @@ class Train:
         #"""
 
         ##### Initialize optimizers #####
-        self.encoder_optim = optim.Adam(self.encoder.parameters(), lr=self.args.encoder_lr, betas=(0.5, 0.999), weight_decay=0)
-        self.mapper_optim = optim.Adam(self.mapper.parameters(), lr=self.args.mapper_lr, betas=(0.5, 0.999), weight_decay=0)
-        self.decoder_optim = optim.Adam(self.decoder.parameters(), lr=self.args.decoder_lr, betas=(0.5, 0.999), weight_decay=0)
+        self.encoder_optim = optim.Adam(self.encoder.parameters(), lr=self.args.encoder_lr, betas=(0.9, 0.999), weight_decay=0)
+        self.decoder_optim = optim.Adam(self.decoder.parameters(), lr=self.args.decoder_lr, betas=(0.9, 0.999), weight_decay=0)
 
         #self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
         #self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=self.args.step_size, gamma=0.2, last_epoch=-1, verbose=True)
@@ -83,6 +73,7 @@ class Train:
         ##### Initialize loss functions #####
         self.mse_loss = nn.MSELoss().to(self.args.device).eval()
         self.lpips_loss = LPIPS(net_type='alex').to(self.args.device).eval()
+        self.feat_loss = loss_functions.IdLoss('Cos').to(self.args.device).eval()
 
         ##### Initialize data loaders ##### 
         train_transforms = transforms.Compose([
@@ -98,6 +89,8 @@ class Train:
 
         train_dataset = ImageDataset(root=self.args.train_dir, transforms=train_transforms)
         val_dataset = ImageDataset(root=self.args.val_dir, transforms=val_transforms)
+        print_log(info="[*]Loaded {} training images".format(len(train_dataset)), log_path=self.args.logpath, console=True)
+        print_log(info="[*]Loaded {} validation images".format(len(val_dataset)), log_path=self.args.logpath, console=True)
         
         self.train_loader = DataLoader(
             train_dataset,
@@ -122,21 +115,30 @@ class Train:
     def forward_pass(self, image_ori):
         image_ori = image_ori.to(self.args.device)
         
-        image_feature = self.encoder(image_ori) # image_feature.shape = torch.Size([8, 512])
-
-        image_feature_plus = self.mapper(image_feature) # image_feature.shape = torch.Size([8, 18, 512])
+        image_feature_ori = self.encoder(image_ori) # image_feature.shape = torch.Size([8, 512])
+        image_feature_ori_norm = l2_norm(image_feature_ori)
+        
+        #image_feature_plus = self.mapper(image_feature) # image_feature.shape = torch.Size([8, 18, 512])
         
         image_rec, _ = self.decoder(
-            styles=[image_feature_plus],
+            #styles=[image_feature_plus],
+            styles=[image_feature_ori_norm],
             input_is_latent=True,
             randomize_noise=True,
             return_latents=False,
             )
+        
+        image_feature_rec = self.encoder(image_rec)
+        image_feature_rec_norm = l2_norm(image_feature_rec)
 
         ##### Collect results ##### 
         data_dict = {
             'image_ori': image_ori,
+            'image_feature_ori': image_feature_ori,
+            'image_feature_ori_norm': image_feature_ori_norm,
             'image_rec': image_rec,
+            'image_feature_rec': image_feature_rec,
+            'image_feature_rec_norm': image_feature_rec_norm,
         }
 
         return data_dict
@@ -144,13 +146,12 @@ class Train:
 
     def training(self, epoch, image_loader):
         self.encoder.train()
-        self.mapper.train()
         self.decoder.train()
 
         batch_time = AverageMeter()
-
         MSE_loss = AverageMeter()
         LPIPS_loss = AverageMeter()
+        Feat_loss = AverageMeter()
         TrainLosses = AverageMeter()
 
         start_time = time.time()
@@ -162,22 +163,22 @@ class Train:
             ##### Calculating losses and Back propagatiion #####
             loss_mse = self.mse_loss(data_dict['image_rec'], data_dict['image_ori'])
             loss_lpips = self.lpips_loss(data_dict['image_rec'], data_dict['image_ori'])
+            loss_feat = self.feat_loss(data_dict['image_feature_rec_norm'], data_dict['image_feature_ori_norm'])
 
-            SumTrainLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips
+            SumTrainLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips + self.args.feat_lambda*loss_feat
 
             self.encoder_optim.zero_grad()
-            self.mapper_optim.zero_grad()
             self.decoder_optim.zero_grad()
             
             SumTrainLosses.backward()
             
             self.encoder_optim.step()
-            self.mapper_optim.step()
             self.decoder_optim.step()
             
             ##### Log losses and computation time #####
             MSE_loss.update(loss_mse.item(), self.args.train_bs)
             LPIPS_loss.update(loss_lpips.item(), self.args.train_bs)
+            Feat_loss.update(loss_feat.item(), self.args.train_bs)
             TrainLosses.update(SumTrainLosses.item(), self.args.train_bs)
 
             batch_time.update(time.time()-start_time)
@@ -186,13 +187,14 @@ class Train:
             train_data_dict = {
                 'MSE_loss': MSE_loss.avg,
                 'LPIPS_loss': LPIPS_loss.avg,
+                'Feat_loss': Feat_loss.avg,
                 'TrainLosses': TrainLosses.avg,
             }
 
             ##### Board and log losses, and visualize results #####
             if (self.global_train_steps+1) % self.args.board_interval == 0:
-                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] MSE_loss: {:.6f} LPIPS_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
-                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, MSE_loss.val, LPIPS_loss.val, TrainLosses.val, batch_time.val
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] MSE_loss: {:.6f} LPIPS_loss: {:.6f} Feat_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, MSE_loss.val, LPIPS_loss.val, Feat_loss.val, TrainLosses.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
                 log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
@@ -205,16 +207,20 @@ class Train:
             if train_iter == self.args.max_train_iters-1:
                 break
 
+        train_epoch_log = "[{:d}/{:d}] MSE_loss: {:.6f} LPIPS_loss: {:.6f} Feat_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
+            epoch+1, self.args.max_epoch, MSE_loss.avg, LPIPS_loss.avg, Feat_loss.avg, TrainLosses.avg, batch_time.sum
+        )
+        print_log(info=train_epoch_log, log_path=self.args.logpath, console=True)
+
 
     def validation(self, epoch, image_loader):
         self.encoder.eval()
-        self.mapper.eval()
         self.decoder.eval()
 
         batch_time = AverageMeter()
-
         MSE_loss = AverageMeter()
         LPIPS_loss = AverageMeter()
+        Feat_loss = AverageMeter()
         ValLosses = AverageMeter()
 
         start_time = time.time()
@@ -226,12 +232,14 @@ class Train:
             ##### Calculate losses #####
             loss_mse = self.mse_loss(data_dict['image_rec'], data_dict['image_ori'])
             loss_lpips = self.lpips_loss(data_dict['image_rec'], data_dict['image_ori'])
+            loss_feat = self.feat_loss(data_dict['image_feature_rec_norm'], data_dict['image_feature_ori_norm'])
 
-            SumValLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips
+            SumValLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips + self.args.feat_lambda*loss_feat
 
             ##### Log losses and computation time #####
             MSE_loss.update(loss_mse.item(), self.args.train_bs)
             LPIPS_loss.update(loss_lpips.item(), self.args.train_bs)
+            Feat_loss.update(loss_feat.item(), self.args.train_bs)
             ValLosses.update(SumValLosses.item(), self.args.train_bs)
 
             batch_time.update(time.time() - start_time)
@@ -243,12 +251,13 @@ class Train:
         validate_data_dict = {
             'MSELoss': MSE_loss.avg,
             'LPIPS_loss': LPIPS_loss.avg,
+            'Feat_loss': Feat_loss.avg,
             'ValLosses': ValLosses.avg,
         }
         log_metrics(writer=self.writer, data_dict=validate_data_dict, step=epoch+1, prefix='validate')
-
-        val_log = "Validation[{:d}] MSE_loss: {:.6f} LPIPS_loss: {:.6f} Vallosses: {:.6f} BatchTime: {:.4f}".format(
-            epoch+1, MSE_loss.avg, LPIPS_loss.avg, ValLosses.avg, batch_time.avg
+        
+        val_log = "Validation[{:d}] MSE_loss: {:.6f} LPIPS_loss: {:.6f} Feat_loss: {:.6f} Vallosses: {:.6f} BatchTime: {:.4f}".format(
+            epoch+1, MSE_loss.avg, LPIPS_loss.avg, Feat_loss.avg, ValLosses.avg, batch_time.avg
         )
         print_log(info=val_log, log_path=self.args.logpath, console=True)
 
@@ -279,7 +288,6 @@ class Train:
                 stat_dict = {
                     'epoch': epoch + 1,
                     'encoder_state_dict': self.encoder.state_dict(),
-                    'mapper_state_dict': self.mapper.state_dict(),
                     'decoder_state_dict': self.decoder.state_dict(),
                 }
                 self.save_checkpoint(stat_dict, is_best=False)
@@ -297,7 +305,6 @@ class Train:
     def save_checkpoint(self, state, is_best):
         if is_best:
             torch.save(state['encoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Encoder_best.pth'))
-            torch.save(state['mapper_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Mapper_best.pth'))
             torch.save(state['decoder_state_dict'], os.path.join(self.args.bestresults_dir, 'checkpoints', 'Decoder_best.pth'))
         else:
             torch.save(state, os.path.join(self.args.checkpoint_savedir, 'checkpoint.pth.tar'))

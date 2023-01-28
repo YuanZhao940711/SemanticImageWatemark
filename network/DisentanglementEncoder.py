@@ -119,10 +119,16 @@ class DisentanglementEncoder(nn.Module):
         self.downsample_blocks_7 = get_block(unit_module=ResidualBlock, in_channel=1024, out_channel=2048, num_units=2, norm=norm) # bsx1024x4x4 -> bsx2048x2x2
 
         self.id_encoder = nn.Sequential(
+            nn.BatchNorm2d(num_features=2048),
+            #nn.AdaptiveAvgPool2d(output_size=(1,1)),
             nn.Flatten(),
-            nn.Linear(2048*2*2, latent_dim, bias=False),
-            nn.Tanh()
+            #nn.Linear(2048*2*2, latent_dim, bias=False),
+            nn.Linear(2048*2*2, 2048, bias=False),
+            #nn.Tanh(),
         )
+
+        self.fc_mu = nn.Linear(in_features=2048, out_features=latent_dim)
+        self.fc_var = nn.Linear(in_features=2048, out_features=latent_dim)
 
         self.upsample_block_0 = nn.Conv2d(in_channels=2048, out_channels=1024, kernel_size=1, stride=1, padding=0, bias=False)
         self.upsample_block_1 = deconv4x4(in_c=1024, out_c=1024)
@@ -131,6 +137,14 @@ class DisentanglementEncoder(nn.Module):
         self.upsample_block_4 = deconv4x4(in_c=512, out_c=128)
         self.upsample_block_5 = deconv4x4(in_c=256, out_c=64)
         self.upsample_block_6 = deconv4x4(in_c=128, out_c=32)
+
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.rand_like(std)
+        
+        return eps * std + mu
+
 
     def forward(self, input):
         feat_input = self.input_layer(input) # input: bsx3x256x256 -> feat_input: bsx32x256x256
@@ -143,7 +157,11 @@ class DisentanglementEncoder(nn.Module):
         feat6 = self.downsample_blocks_6(feat5) # feat6: bsx1024x4x4
         feat7 = self.downsample_blocks_7(feat6) # feat7: bsx2048x2x2
 
-        id_feat = self.id_encoder(feat7) # feat7: bsx2048x2x2 -> id_feat: bsx512
+        #id_feat = self.id_encoder(feat7) # feat7: bsx2048x2x2 -> id_feat: bsx512
+        latent_feat = self.id_encoder(feat7) # feat7: bsx2048x2x2 -> id_feat: bsx2048
+        mu = self.fc_mu(latent_feat)
+        log_var = self.fc_var(latent_feat)
+        id_feat = self.reparameterize(mu=mu, logvar=log_var)
 
         z_att1 = self.upsample_block_0(feat7) # feat7: bsx2048x2x2 -> z_att1: bsx1024x2x2
         z_att2 = self.upsample_block_1(z_att1, feat6) # z_att2: 2048 x 4 x 4
@@ -152,8 +170,8 @@ class DisentanglementEncoder(nn.Module):
         z_att5 = self.upsample_block_4(z_att4, feat3) # z_att5: 256 x 32 x 32
         z_att6 = self.upsample_block_5(z_att5, feat2) # z_att6: 128 x 64 x 64
         z_att7 = self.upsample_block_6(z_att6, feat1) # z_att7: 64 x 128 x 128
-        z_att8 = F.interpolate(z_att7, scale_factor=2, mode='bilinear', align_corners=True) # z_att7: 64 x 256 x 256
+        z_att8 = F.interpolate(z_att7, scale_factor=2, mode='bilinear', align_corners=True) # z_att8: 64 x 256 x 256
 
         att_feat = [z_att1, z_att2, z_att3, z_att4, z_att5, z_att6, z_att7, z_att8]
 
-        return id_feat, att_feat
+        return mu, log_var, id_feat, att_feat
