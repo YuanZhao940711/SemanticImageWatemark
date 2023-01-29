@@ -12,11 +12,11 @@ import torchvision.transforms as transforms
 
 from options.options import InferencePspOptions
 
-from network.Encoder import PspEncoder, MappingNetwork
-from stylegan2.model import Generator
+from network.Encoder import PspEncoder
+from stylegan2.model import Stylegan2Decoder
 
 from utils.dataset import ImageDataset
-from utils.common import tensor2img
+from utils.common import tensor2img, l2_norm
 
 
 
@@ -37,41 +37,31 @@ class Inference:
 
 
         ##### Initialize networks and load pretrained models #####
-        checkpoint = torch.load(self.args.checkpoint_dir, map_location=self.args.device)
+        #checkpoint = torch.load(self.args.checkpoint_dir, map_location=self.args.device)
 
         # Encoder
         self.encoder = PspEncoder(50, 'ir_se').to(self.args.device)
+        #self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
         try:
-            #self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
-            self.encoder.load_state_dict(checkpoint['encoder_state_dict'], strict=True)
+            self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
+            #self.encoder.load_state_dict(checkpoint['encoder_state_dict'], strict=True)
             print("[*]Successfully loaded Encoder's pre-trained model")
             #torch.save(self.encoder.state_dict(), os.path.join(self.args.output_dir, 'Encoder_best.pth'))
         except:
             raise ValueError("[*]Unable to load Encoder's pre-trained model")
 
-        # Mapper
-        self.mapper = MappingNetwork().to(self.args.device)
-        try:
-            #self.mapper.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Mapper_best.pth'), map_location=self.args.device), strict=True)
-            self.mapper.load_state_dict(checkpoint['mapper_state_dict'], strict=True)
-            print("[*]Successfully loaded Mapper's pre-trained model")
-            #torch.save(self.mapper.state_dict(), os.path.join(self.args.output_dir, 'Mapper_best.pth'))
-        except:
-            raise ValueError("[*]Unable to load Mapper's pre-trained model")
-
         # Decoder
         #default size=1024, style_dim=512, n_mlp=8
-        self.decoder = Generator(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
+        self.decoder = Stylegan2Decoder(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
         try:
-            #self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
-            self.decoder.load_state_dict(checkpoint['decoder_state_dict'], strict=True)
+            self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
+            #self.decoder.load_state_dict(checkpoint['decoder_state_dict'], strict=True)
             print("[*]Successfully loaded Decoder's pre-trained model")
             #torch.save(self.decoder.state_dict(), os.path.join(self.args.output_dir, 'Decoder_best.pth'))
         except:
             raise ValueError("[*]Unable to load Decoder's pre-trained model")
         
         self.encoder.eval()
-        self.mapper.eval()
         self.decoder.eval()
 
         ##### Initialize data loaders ##### 
@@ -101,15 +91,15 @@ class Inference:
             image_ori = image_batch.to(self.args.device)
 
             image_feature = self.encoder(image_ori)
-
-            image_feature_plus = self.mapper(image_feature)
+            image_feature_norm = l2_norm(image_feature)
 
             image_rec, _ = self.decoder(
-                styles=[image_feature_plus],
+                #styles=[image_feature_plus],
+                styles=[image_feature_norm],
                 input_is_latent=True,
                 randomize_noise=True,
                 return_latents=False,
-                )
+            )
 
             for img_ori, img_rec in zip(image_ori, image_rec):
                 img_ori = tensor2img(img_ori)

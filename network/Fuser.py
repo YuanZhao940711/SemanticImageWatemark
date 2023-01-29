@@ -7,10 +7,30 @@ class Fuser(nn.Module):
     def __init__(self, latent_dim):
         super(Fuser, self).__init__()
 
-        self.fuser = nn.Sequential(
+        self.cover_input = nn.Sequential(
+            nn.Linear(in_features=latent_dim, out_features=latent_dim*2, bias=True),
             nn.BatchNorm1d(num_features=latent_dim*2, affine=True),
-             
+            nn.LeakyReLU(inplace=True),
+
+            nn.Linear(in_features=latent_dim*2, out_features=latent_dim, bias=True),
+            nn.LeakyReLU(inplace=True),
+        )
+
+        self.secret_input = nn.Sequential(
+            nn.Linear(in_features=latent_dim, out_features=latent_dim*2, bias=True),
+            nn.BatchNorm1d(num_features=latent_dim*2, affine=True),
+            nn.LeakyReLU(inplace=True),
+
+            nn.Linear(in_features=latent_dim*2, out_features=latent_dim, bias=True),
+            nn.LeakyReLU(inplace=True),
+        )
+
+        self.fuse_layer = nn.Sequential(             
             nn.Linear(in_features=latent_dim*2, out_features=latent_dim*4, bias=True),
+            nn.BatchNorm1d(num_features=latent_dim*4, affine=True),
+            nn.LeakyReLU(inplace=True),
+
+            nn.Linear(in_features=latent_dim*4, out_features=latent_dim*4, bias=True),
             #nn.BatchNorm1d(num_features=latent_dim*4, affine=True),
             nn.LeakyReLU(inplace=True),
 
@@ -25,12 +45,12 @@ class Fuser(nn.Module):
         )
         
 
-    def forward(self, feature_vector_a, feature_vector_b):
+    def forward(self, cover_id, secret_feat):
+        cover_vector = self.cover_input(cover_id)
+        secret_vector = self.cover_input(secret_feat)
 
-        feature_vectors = torch.cat((feature_vector_a, feature_vector_b), dim=1)
+        feature_vectors = torch.cat((cover_vector, secret_vector), dim=1)
 
-        feature_fused = self.fuser(feature_vectors)
+        feature_fused = self.fuse_layer(feature_vectors)
 
-        feature_fused = self.output_layer(feature_fused)
-
-        return feature_fused
+        return self.output_layer(feature_fused)

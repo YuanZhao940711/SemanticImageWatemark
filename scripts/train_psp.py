@@ -126,7 +126,7 @@ class Train:
             input_is_latent=True,
             randomize_noise=True,
             return_latents=False,
-            )
+        )
         
         image_feature_rec = self.encoder(image_rec)
         image_feature_rec_norm = l2_norm(image_feature_rec)
@@ -207,7 +207,7 @@ class Train:
             if train_iter == self.args.max_train_iters-1:
                 break
 
-        train_epoch_log = "[{:d}/{:d}] MSE_loss: {:.6f} LPIPS_loss: {:.6f} Feat_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
+        train_epoch_log = "Training[{:d}/{:d}] MSE_loss: {:.6f} LPIPS_loss: {:.6f} Feat_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
             epoch+1, self.args.max_epoch, MSE_loss.avg, LPIPS_loss.avg, Feat_loss.avg, TrainLosses.avg, batch_time.sum
         )
         print_log(info=train_epoch_log, log_path=self.args.logpath, console=True)

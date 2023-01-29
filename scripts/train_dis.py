@@ -213,7 +213,7 @@ class Train:
             if train_iter == self.args.max_train_iters-1:
                 break
 
-        train_epoch_log = "[{:d}/{:d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_loss: {:.6f} Kl_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+        train_epoch_log = "Training[{:d}/{:d}] Att_loss: {:.6f} Id_loss: {:.6f} Rec_loss: {:.6f} Kl_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
             epoch+1, self.args.max_epoch, Att_loss.avg, Id_loss.avg, Rec_loss.avg, Kl_loss.avg, Train_losses.avg, batch_time.sum
         )
         print_log(info=train_epoch_log, log_path=self.args.logpath, console=True)

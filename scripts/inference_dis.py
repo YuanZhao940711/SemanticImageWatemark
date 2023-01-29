@@ -16,7 +16,7 @@ from network.DisentanglementEncoder import DisentanglementEncoder
 from network.AAD import AADGenerator
 
 from utils.dataset import ImageDataset
-from utils.common import tensor2img
+from utils.common import tensor2img, l2_norm
 
 
 
@@ -83,9 +83,11 @@ class Inference:
         for image_batch in tqdm(self.image_loader):
             image_ori = image_batch.to(self.args.device)
 
-            image_id, image_att = self.disentangler(image_ori)
+            _, _, image_id, image_att = self.disentangler(image_ori)
+            image_id_norm = l2_norm(image_id)
             
-            image_rec = self.generator(inputs=(image_att, image_id))
+            #image_rec = self.generator(inputs=(image_att, image_id))
+            image_rec = self.generator(inputs=(image_att, image_id_norm))
 
             for img_ori, img_rec in zip(image_ori, image_rec):
                 img_ori = tensor2img(img_ori)

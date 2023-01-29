@@ -24,10 +24,10 @@ class TrainOptions:
 
         self.parser.add_argument('--dis_lr', default=1e-4, type=float)
         self.parser.add_argument('--gen_lr', default=1e-4, type=float)
-        self.parser.add_argument('--fuser_lr', default=1e-4, type=float)
-        self.parser.add_argument('--separator_lr', default=1e-4, type=float)
         self.parser.add_argument('--encoder_lr', default=1e-4, type=float)
         self.parser.add_argument('--decoder_lr', default=1e-4, type=float)
+        self.parser.add_argument('--fuser_lr', default=1e-4, type=float)
+        self.parser.add_argument('--separator_lr', default=1e-4, type=float)
         self.parser.add_argument('--step_size', default=10, type=int)
 
         self.parser.add_argument('--conidloss_mode', default='Cos', type=str)
