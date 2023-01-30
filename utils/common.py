@@ -120,14 +120,14 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
         plt.plot(container_id)
         plt.grid()
         cover_similarity = 1 - spatial.distance.cosine(cover_id, container_id)
-        fused_similarity = 1 - spatial.distance.cosine(input_feature, container_id)
+        fused_similarity = 1 - spatial.distance.cosine(input_feature + 1e-5, container_id)
         plt.title('Container_id CovSim:{:.2f} FusSim:{:.2f}'.format(cover_similarity, fused_similarity))
 
         fig.add_subplot(gs[img_idx, 10])
         secret_feature_output = vis_dict['secret_feature_output'][img_idx].cpu().detach().numpy()
         plt.plot(secret_feature_output)
         plt.grid()
-        feat_similarity = 1 - spatial.distance.cosine(secret_feature_input + 1e-5, secret_feature_output)
+        feat_similarity = 1 - spatial.distance.cosine(secret_feature_input + 1e-5, secret_feature_output + 1e-5)
         plt.title('Secret_Feature_Output FeatSim:{:.2f}'.format(feat_similarity))
 
     plt.tight_layout()
@@ -294,6 +294,115 @@ def visualize_dis_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None,
         plt.plot(image_rec_id_norm)
         plt.grid()
         plt.title('Image reconstructed id norm')
+
+    plt.tight_layout()
+    fig.savefig(ResultImgName)
+    plt.close(fig)
+
+
+
+def visualize_sihn_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, step=None):
+    if prefix == 'train':
+        ResultImgName = os.path.join(save_dir, 'ResultPics_epoch{:05d}_iter{:05d}_step{:05d}.png'.format(epoch, iter, step))
+    elif prefix == 'validation':
+        ResultImgName = os.path.join(save_dir, 'ResultPics_epoch{:05d}.png'.format(epoch))
+    elif prefix == 'best':
+        ResultImgName = os.path.join(save_dir, 'BestResultPics.png')
+    else:
+        raise ValueError('[*]Invalid result picture save prefix. Must be one of train, validation or best')
+
+    cover_gap = vis_dict['container'] - vis_dict['cover']
+    cover_gap = (cover_gap*10 + 0.5).clamp_(0.0, 1.0)
+
+    secret_rec_gap = vis_dict['secret_rec'] - vis_dict['secret_ori']
+    secret_rec_gap = (secret_rec_gap*10 + 0.5).clamp_(0.0, 1.0)
+
+    secret_output_gap = vis_dict['secret_output'] - vis_dict['secret_ori']
+    secret_output_gap = (secret_output_gap*10 + 0.5).clamp_(0.0, 1.0)
+
+    fig = plt.figure(figsize=(70, 5*dis_num))
+    gs = fig.add_gridspec(nrows=dis_num, ncols=14)
+    for img_idx in range(dis_num):
+        fig.add_subplot(gs[img_idx, 0])
+        cover = tensor2img(vis_dict['cover'][img_idx])
+        plt.imshow(cover)
+        plt.title('Cover')
+
+        fig.add_subplot(gs[img_idx, 1])
+        container = tensor2img(vis_dict['container'][img_idx]) 
+        plt.imshow(container)
+        plt.title('Container')
+
+        fig.add_subplot(gs[img_idx, 2])
+        covgap_img = tensor2img(cover_gap[img_idx])
+        plt.imshow(covgap_img)
+        plt.title('Cover Gap')
+
+        fig.add_subplot(gs[img_idx, 3])
+        secret = tensor2img(vis_dict['secret_ori'][img_idx])
+        plt.imshow(secret)
+        plt.title('Secret')
+
+        fig.add_subplot(gs[img_idx, 4])
+        secret_rec = tensor2img(vis_dict['secret_rec'][img_idx])
+        plt.imshow(secret_rec)
+        plt.title('Secret_rec')
+
+        fig.add_subplot(gs[img_idx, 5])
+        secrecgap_img = tensor2img(secret_rec_gap[img_idx])
+        plt.imshow(secrecgap_img)
+        plt.title('Secret_rec Gap')
+
+        fig.add_subplot(gs[img_idx, 6])
+        secret_output = tensor2img(vis_dict['secret_output'][img_idx])
+        plt.imshow(secret_output)
+        plt.title('Secret_output')
+
+        fig.add_subplot(gs[img_idx, 7])
+        secoutputgap_img = tensor2img(secret_output_gap[img_idx])
+        plt.imshow(secoutputgap_img)
+        plt.title('Secret_output Gap')
+
+        fig.add_subplot(gs[img_idx, 8])
+        cover_id = vis_dict['cover_id'][img_idx].cpu().detach().numpy()
+        plt.plot(cover_id)
+        plt.grid()
+        plt.title('Cover_Id')
+        
+        fig.add_subplot(gs[img_idx, 9])
+        secret_feature_input = vis_dict['secret_feature_input'][img_idx].cpu().detach().numpy()
+        plt.plot(secret_feature_input)
+        plt.grid()
+        plt.title('Secret_Feature_Input')
+
+        fig.add_subplot(gs[img_idx, 10])
+        input_feature = vis_dict['input_feature'][img_idx].cpu().detach().numpy()
+        plt.plot(input_feature)
+        plt.grid()
+        plt.title('Input_feature')
+
+        fig.add_subplot(gs[img_idx, 11])
+        container_id = vis_dict['container_id'][img_idx].cpu().detach().numpy()
+        plt.plot(container_id)
+        plt.grid()
+        cover_similarity = 1 - spatial.distance.cosine(cover_id, container_id)
+        fused_similarity = 1 - spatial.distance.cosine(input_feature + 1e-5, container_id)
+        plt.title('Container_id CovSim:{:.2f} FusSim:{:.2f}'.format(cover_similarity, fused_similarity))
+
+        fig.add_subplot(gs[img_idx, 12])
+        secret_feature_output = vis_dict['secret_feature_output'][img_idx].cpu().detach().numpy()
+        plt.plot(secret_feature_output)
+        plt.grid()
+        featinput_similarity = 1 - spatial.distance.cosine(secret_feature_input + 1e-5, secret_feature_output + 1e-5)
+        plt.title('Secret_Feature_Output FeatInputSim:{:.2f}'.format(featinput_similarity))
+
+        fig.add_subplot(gs[img_idx, 13])
+        secret_feature_rec = vis_dict['secret_feature_rec'][img_idx].cpu().detach().numpy()
+        plt.plot(secret_feature_rec)
+        plt.grid()
+        featrec_similarity = 1 - spatial.distance.cosine(secret_feature_input + 1e-5, secret_feature_rec + 1e-5)
+        featoutput_similarity = 1 - spatial.distance.cosine(secret_feature_output + 1e-5, secret_feature_rec + 1e-5)
+        plt.title('Secret_Feature_Rec FeatRecSim:{:.2f} FeatOutputSim: {:.2f}'.format(featrec_similarity, featoutput_similarity))
 
     plt.tight_layout()
     fig.savefig(ResultImgName)
