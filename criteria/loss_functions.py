@@ -163,12 +163,13 @@ class FeatLoss(nn.Module):
         super(FeatLoss, self).__init__()
 
         if loss_mode == 'MSE':
-            self.criterion = nn.MSELoss().to(device)
+            self.criterion = nn.MSELoss(reduction='mean').to(device)
             self.mode = loss_mode
         elif loss_mode == 'MAE':
-            self.criterion = nn.L1Loss().to(device)
+            self.criterion = nn.L1Loss(reduction='mean').to(device)
             self.mode = loss_mode
         elif loss_mode == 'Cos':
+            self.criterion = nn.CosineSimilarity(dim=1, eps=1e-08).to(device)
             self.mode = loss_mode
         else:
             raise ValueError('Unexpected Loss Mode {}'.format(loss_mode))
@@ -179,7 +180,8 @@ class FeatLoss(nn.Module):
         elif self.mode == 'MAE':
             feat_loss = self.criterion(feat_rec, feat_ori)
         elif self.mode == 'Cos':
-            feat_loss = torch.mean(1 - torch.cosine_similarity(feat_rec, feat_ori, dim=1))
+            #feat_loss = torch.mean(1 - torch.cosine_similarity(feat_rec, feat_ori, dim=1), dim=0)
+            feat_loss = torch.mean(1 - self.criterion(feat_rec, feat_ori), dim=0)
         
         return feat_loss
 

@@ -118,8 +118,6 @@ class Train:
         image_feature_ori = self.encoder(image_ori) # image_feature.shape = torch.Size([8, 512])
         image_feature_ori_norm = l2_norm(image_feature_ori)
         
-        #image_feature_plus = self.mapper(image_feature) # image_feature.shape = torch.Size([8, 18, 512])
-        
         image_rec, _ = self.decoder(
             #styles=[image_feature_plus],
             styles=[image_feature_ori_norm],
@@ -165,7 +163,8 @@ class Train:
             loss_lpips = self.lpips_loss(data_dict['image_rec'], data_dict['image_ori'])
             loss_feat = self.feat_loss(data_dict['image_feature_rec_norm'], data_dict['image_feature_ori_norm'])
 
-            SumTrainLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips + self.args.feat_lambda*loss_feat
+            SumTrainLosses = self.args.mse_lambda*loss_mse
+            #SumTrainLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips + self.args.feat_lambda*loss_feat
 
             self.encoder_optim.zero_grad()
             self.decoder_optim.zero_grad()
@@ -234,7 +233,8 @@ class Train:
             loss_lpips = self.lpips_loss(data_dict['image_rec'], data_dict['image_ori'])
             loss_feat = self.feat_loss(data_dict['image_feature_rec_norm'], data_dict['image_feature_ori_norm'])
 
-            SumValLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips + self.args.feat_lambda*loss_feat
+            SumValLosses = self.args.mse_lambda*loss_mse
+            #SumValLosses = self.args.mse_lambda*loss_mse + self.args.lpips_lambda*loss_lpips + self.args.feat_lambda*loss_feat
 
             ##### Log losses and computation time #####
             MSE_loss.update(loss_mse.item(), self.args.train_bs)
@@ -278,7 +278,7 @@ class Train:
                 self.training(epoch, self.train_loader)
             """
             
-            if epoch % self.args.validation_interval == 0:
+            if (epoch+1) % self.args.validation_interval == 0:
                 with torch.no_grad():
                     validation_loss, data_dict = self.validation(epoch, self.val_loader)
 

@@ -14,10 +14,11 @@ from torch.utils.tensorboard import SummaryWriter
 
 from options.options import TrainVaeOptions
 
-from network.Encoder import Encoder
-from network.Decoder import Decoder
+from network.Encoder import PspEncoder#, PsprpEncoder, VanillaEncoder
+from network.Decoder import VanillaDecoder
 
 from criteria import loss_functions
+#from criteria.lpips.lpips import LPIPS
 
 from utils.dataset import ImageDataset
 from utils.common import weights_init, visualize_vae_results, print_log, log_metrics, AverageMeter
@@ -41,7 +42,9 @@ class Train:
 
         ##### Initialize networks and load pretrained models #####
         # Encoder
-        self.encoder = Encoder(in_channels=3, latent_dim=self.args.latent_dim, device=self.args.device).to(self.args.device)
+        #self.encoder = VanillaEncoder(in_channels=3, latent_dim=self.args.latent_dim, device=self.args.device).to(self.args.device)
+        #self.encoder = PsprpEncoder(50, 'ir_se').to(self.args.device)
+        self.encoder = PspEncoder(50, 'ir_se').to(self.args.device)
         try:
             self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
         except:
@@ -49,7 +52,8 @@ class Train:
             self.encoder.apply(weights_init)
 
         # Decoder
-        self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
+        #self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
+        self.decoder = VanillaDecoder().to(self.args.device)
         try:
             self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
         except:
@@ -60,12 +64,12 @@ class Train:
         self.encoder_optim = optim.Adam(self.encoder.parameters(), lr=self.args.encoder_lr, betas=(0.5, 0.999), weight_decay=0)
         self.decoder_optim = optim.Adam(self.decoder.parameters(), lr=self.args.decoder_lr, betas=(0.5, 0.999), weight_decay=0)
 
-        self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=10, gamma=0.2, last_epoch=-1, verbose=True)
-        self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=10, gamma=0.2, last_epoch=-1, verbose=True)
+        #self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=10, gamma=0.2, last_epoch=-1, verbose=True)
+        #self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=10, gamma=0.2, last_epoch=-1, verbose=True)
 
         ##### Initialize loss functions #####
         self.vae_rec_loss = loss_functions.VaeRecLoss(self.args.recloss_mode, self.args.device)
-        self.vae_kl_loss = loss_functions.KlLoss(self.args.device)
+        #self.vae_kl_loss = loss_functions.KlLoss(self.args.device)
 
         ##### Initialize data loaders ##### 
         train_transforms = transforms.Compose([
@@ -81,6 +85,8 @@ class Train:
 
         train_dataset = ImageDataset(root=self.args.train_dir, transforms=train_transforms)
         val_dataset = ImageDataset(root=self.args.val_dir, transforms=val_transforms)
+        print_log(info="[*]Loaded {} training images".format(len(train_dataset)), log_path=self.args.logpath, console=True)
+        print_log(info="[*]Loaded {} validation images".format(len(val_dataset)), log_path=self.args.logpath, console=True)
         
         self.train_loader = DataLoader(
             train_dataset,
@@ -105,8 +111,8 @@ class Train:
     def forward_pass(self, image_ori):
         image_ori = image_ori.to(self.args.device)
         
-        #image_feature = self.encoder(image_ori)
-        image_feature, image_mu, image_logsigma2 = self.encoder(image_ori)
+        image_feature = self.encoder(image_ori)
+        #image_mu, image_logvar, image_feature = self.encoder(image_ori)
         
         image_rec = self.decoder(image_feature)
 
@@ -115,8 +121,8 @@ class Train:
             'image_ori': image_ori,
             'image_rec': image_rec,
             'image_feature': image_feature,
-            'image_mu': image_mu,
-            'image_logsigma2': image_logsigma2,
+            #'image_mu': image_mu,
+            #'image_logvar': image_logvar,
         }
 
         return data_dict
@@ -129,7 +135,7 @@ class Train:
         batch_time = AverageMeter()
 
         Rec_loss = AverageMeter()
-        Kl_loss = AverageMeter()
+        #Kl_loss = AverageMeter()
         TrainLosses = AverageMeter()
 
         start_time = time.time()
@@ -140,21 +146,22 @@ class Train:
 
             ##### Calculating losses and Back propagatiion #####
             loss_rec = self.vae_rec_loss(data_dict['image_rec'], data_dict['image_ori'])
-            loss_kl = self.vae_kl_loss(mu=data_dict['image_mu'], log_sigma_2=data_dict['image_logsigma2'])
+            #loss_kl = self.vae_kl_loss(mu=data_dict['image_mu'], log_var=data_dict['image_logvar'])
 
-            SumTrainLosses = self.args.rec_lambda*loss_rec + self.args.kl_lambda*loss_kl
+            #SumTrainLosses = self.args.rec_lambda*loss_rec + self.args.kl_lambda*loss_kl
+            SumTrainLosses = self.args.rec_lambda*loss_rec
 
             self.encoder_optim.zero_grad()
             self.decoder_optim.zero_grad()
+            
             SumTrainLosses.backward()
-            #loss_kl.backward(retain_graph=True)
-            #loss_rec.backward()
+
             self.encoder_optim.step()
             self.decoder_optim.step()
             
             ##### Log losses and computation time #####
             Rec_loss.update(loss_rec.item(), self.args.train_bs)
-            Kl_loss.update(loss_kl.item(), self.args.train_bs)
+            #Kl_loss.update(loss_kl.item(), self.args.train_bs)
             TrainLosses.update(SumTrainLosses.item(), self.args.train_bs)
 
             batch_time.update(time.time()-start_time)
@@ -162,14 +169,17 @@ class Train:
 
             train_data_dict = {
                 'Rec_loss': Rec_loss.avg,
-                'Kl_loss': Kl_loss.avg,
+                #'Kl_loss': Kl_loss.avg,
                 'TrainLosses': TrainLosses.avg,
             }
 
             ##### Board and log losses, and visualize results #####
             if (self.global_train_steps+1) % self.args.board_interval == 0:
-                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Rec_loss: {:.6f} Kl_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
+                """train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Rec_loss: {:.6f} Kl_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
                     epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Rec_loss.val, Kl_loss.val, TrainLosses.val, batch_time.val
+                )"""
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] Rec_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Rec_loss.val, TrainLosses.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
                 log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
@@ -182,6 +192,11 @@ class Train:
             if train_iter == self.args.max_train_iters-1:
                 break
 
+        train_log = "Training[{:d}/{:d}] Rec_loss: {:.6f} TrainLosses: {:.6f} BatchTime: {:.4f}".format(
+            epoch+1, self.args.max_epoch, Rec_loss.avg, TrainLosses.avg, batch_time.sum,
+        )
+        print_log(info=train_log, log_path=self.args.logpath, console=True)
+
 
     def validation(self, epoch, image_loader):
         self.encoder.eval()
@@ -190,7 +205,7 @@ class Train:
         batch_time = AverageMeter()
 
         Rec_loss = AverageMeter()
-        Kl_loss = AverageMeter()
+        #Kl_loss = AverageMeter()
         ValLosses = AverageMeter()
 
         start_time = time.time()
@@ -201,13 +216,13 @@ class Train:
 
             ##### Calculate losses #####
             loss_rec = self.vae_rec_loss(data_dict['image_rec'], data_dict['image_ori'])
-            loss_kl = self.vae_kl_loss(mu=data_dict['image_mu'], log_sigma_2=data_dict['image_logsigma2'])
+            #loss_kl = self.vae_kl_loss(mu=data_dict['image_mu'], log_var=data_dict['image_logvar'])
 
-            SumValLosses = self.args.rec_lambda*loss_rec + self.args.kl_lambda*loss_kl
+            SumValLosses = self.args.rec_lambda*loss_rec# + self.args.kl_lambda*loss_kl
 
             ##### Log losses and computation time #####
             Rec_loss.update(loss_rec.item(), self.args.train_bs)
-            Kl_loss.update(loss_kl.item(), self.args.train_bs)
+            #Kl_loss.update(loss_kl.item(), self.args.train_bs)
             ValLosses.update(SumValLosses.item(), self.args.train_bs)
 
             batch_time.update(time.time() - start_time)
@@ -218,13 +233,16 @@ class Train:
 
         validate_data_dict = {
             'RecLoss': Rec_loss.avg,
-            'Kl_loss': Kl_loss.avg,
+            #'Kl_loss': Kl_loss.avg,
             'ValLosses': ValLosses.avg,
         }
         log_metrics(writer=self.writer, data_dict=validate_data_dict, step=epoch+1, prefix='validate')
 
-        val_log = "Validation[{:d}] Rec_loss: {:.6f} Kl_loss: {:.6f} Vallosses: {:.6f} BatchTime: {:.4f}".format(
+        """val_log = "Validation[{:d}] Rec_loss: {:.6f} Kl_loss: {:.6f} Vallosses: {:.6f} BatchTime: {:.4f}".format(
             epoch+1, Rec_loss.avg, Kl_loss.avg, ValLosses.avg, batch_time.avg
+        )"""
+        val_log = "Validation[{:d}] Rec_loss: {:.6f} Vallosses: {:.6f} BatchTime: {:.4f}".format(
+            epoch+1, Rec_loss.avg, ValLosses.avg, batch_time.avg
         )
         print_log(info=val_log, log_path=self.args.logpath, console=True)
 
@@ -239,15 +257,18 @@ class Train:
         self.global_train_steps = 0
 
         for epoch in range(self.args.max_epoch):
+            """
             with torch.autograd.detect_anomaly(check_nan=True):
                 self.training(epoch, self.train_loader)
+            """
+            self.training(epoch, self.train_loader)
             
-            if epoch % self.args.validation_interval == 0:
+            if (epoch+1) % self.args.validation_interval == 0:
                 with torch.no_grad():
                     validation_loss, data_dict = self.validation(epoch, self.val_loader)
 
-                self.encoder_scheduler.step()
-                self.decoder_scheduler.step()
+                #self.encoder_scheduler.step()
+                #self.decoder_scheduler.step()
                 
                 stat_dict = {
                     'epoch': epoch + 1,

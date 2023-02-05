@@ -61,7 +61,7 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
     cover_gap = vis_dict['container'] - vis_dict['cover']
     cover_gap = (cover_gap*10 + 0.5).clamp_(0.0, 1.0)
 
-    secret_gap = vis_dict['secret_rec'] - vis_dict['secret_ori']
+    secret_gap = vis_dict['secret_output'] - vis_dict['secret_ori']
     secret_gap = (secret_gap*10 + 0.5).clamp_(0.0, 1.0)
 
     fig = plt.figure(figsize=(44, 4*dis_num))
@@ -88,7 +88,7 @@ def visualize_results(vis_dict, dis_num, epoch, prefix, save_dir, iter=None, ste
         plt.title('Secret')
 
         fig.add_subplot(gs[img_idx, 4])
-        secret_rec = tensor2img(vis_dict['secret_rec'][img_idx])
+        secret_rec = tensor2img(vis_dict['secret_output'][img_idx])
         plt.imshow(secret_rec)
         plt.title('Secret_rec')
 
