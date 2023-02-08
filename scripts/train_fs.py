@@ -14,7 +14,6 @@ from torch.utils.tensorboard import SummaryWriter
 
 from options.options import TrainDisOptions
 
-#from network.DisentanglementEncoder import DisentanglementEncoder
 from network.DisentanglementEncoder import DisentanglementBackbone, DisentanglementIdEncoder, DisentanglementAttEncoder
 from network.AAD import AADGenerator
 

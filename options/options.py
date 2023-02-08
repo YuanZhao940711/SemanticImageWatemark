@@ -276,6 +276,27 @@ class InferenceDisOptions:
 
 
 
+class TestDisOptions:
+    def __init__(self):
+        self.parser = ArgumentParser()
+        self.initialize()
+
+    def initialize(self): 
+        self.parser.add_argument('--seed', default=0, type=int)
+        self.parser.add_argument('--image_size', default=256, type=int)
+        self.parser.add_argument('--batchsize', default=1, type=int)
+        self.parser.add_argument('--num_workers', default=0, type=int)
+        self.parser.add_argument('--latent_dim', default=512, type=int)
+        self.parser.add_argument('--checkpoint_dir', default='./best_models', type=str)
+        self.parser.add_argument('--image_dir', default='./image', type=str)
+        self.parser.add_argument('--output_dir', default='./experiment', type=str)
+    
+    def parse(self):
+        opts = self.parser.parse_args()
+        return opts
+
+
+
 class TrainSihnOptions:
     def __init__(self):
         self.parser = ArgumentParser()
@@ -296,7 +317,7 @@ class TrainSihnOptions:
         self.parser.add_argument('--latent_dim', default=512, type=int)
         self.parser.add_argument('--checkpoint_dir', default='./best_models', type=str)
 
-        self.parser.add_argument('--dis_lr', default=1e-4, type=float)
+        self.parser.add_argument('--att_lr', default=1e-4, type=float)
         self.parser.add_argument('--gen_lr', default=1e-4, type=float)
         self.parser.add_argument('--fuser_lr', default=1e-4, type=float)
         self.parser.add_argument('--separator_lr', default=1e-4, type=float)

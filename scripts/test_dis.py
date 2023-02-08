@@ -2,7 +2,6 @@ import os
 import sys
 import numpy as np
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 sys.path.append(".")
 sys.path.append("..")
@@ -11,18 +10,18 @@ import torch
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 
-from options.options import InferenceDisOptions
+from options.options import TestDisOptions
 
 from network.DisentanglementEncoder import DisentanglementEncoder
 from network.AAD import AADGenerator
 
 from utils.dataset import ImageDataset
-from utils.common import tensor2img, l2_norm
+from utils.common import visualize_distest_results, l2_norm
 
 
 
 
-class Inference:
+class Test:
     def __init__(self, args):
         self.args = args
 
@@ -78,47 +77,46 @@ class Inference:
 
 
     def running(self):
-        print("Running Dis reconstruction .......................................................")
+        print("Running Dis testing .......................................................")
         idx = 0
 
-        for image_batch in tqdm(self.image_loader):
-            image_ori = image_batch.to(self.args.device)
+        for image in tqdm(self.image_loader):
+            image = image.to(self.args.device)
 
-            #_, _, image_id, image_att = self.disentangler(image_ori)
-            image_id, image_att = self.disentangler(image_ori)
-            image_id_norm = l2_norm(image_id)
-            
-            #image_rec = self.generator(inputs=(image_att, image_id))
-            image_rec = self.generator(inputs=(image_att, image_id_norm))
+            image_ori = image.repeat(8,1,1,1)
 
-            for img_ori, img_rec in zip(image_ori, image_rec):
-                img_ori = tensor2img(img_ori)
-                img_rec = tensor2img(img_rec)
+            image_ori_id, image_ori_att = self.disentangler(image_ori)
+            image_ori_id_norm = l2_norm(image_ori_id)
 
-                img_name = os.path.basename(self.image_dataset.image_paths[idx]).split('.')[0]
+            image_rec = self.generator(inputs=(image_ori_att, image_ori_id_norm))
 
-                img_ori.save(os.path.join(self.args.imgori_savedir, '{}.png'.format(img_name)))
-                img_rec.save(os.path.join(self.args.imgrec_savedir, '{}.png'.format(img_name)))
+            image_rec_id, _ = self.disentangler(image_rec)
+            image_rec_id_norm = l2_norm(image_rec_id)
 
-                idx += 1
+            img_name = os.path.basename(self.image_dataset.image_paths[idx]).split('.')[0]
+
+            data_dict = {
+                'image_ori': image_ori,
+                'image_rec': image_rec,
+                'image_ori_id': image_ori_id_norm,
+                'image_rec_id': image_rec_id_norm,
+            }
+
+            visualize_distest_results(vis_dict=data_dict, save_dir=os.path.join(self.args.output_dir, '{}.png'.format(img_name)))
+
+            idx += 1
 
 
 
 def main():
-    args = InferenceDisOptions().parse()
+    args = TestDisOptions().parse()
 
-    print('[*]Export inference results at {}'.format(args.output_dir))
+    print('[*]Export test results at {}'.format(args.output_dir))
     os.makedirs(args.output_dir, exist_ok=True)
 
-    args.imgori_savedir = os.path.join(args.output_dir, 'image_ori')
-    os.makedirs(args.imgori_savedir, exist_ok=True)
-
-    args.imgrec_savedir = os.path.join(args.output_dir, 'image_rec')
-    os.makedirs(args.imgrec_savedir, exist_ok=True)
-
-    inference = Inference(args)
+    test = Test(args)
     with torch.no_grad():
-        inference.running()
+        test.running()
 
 
 

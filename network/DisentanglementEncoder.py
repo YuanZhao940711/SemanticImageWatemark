@@ -122,13 +122,13 @@ class DisentanglementEncoder(nn.Module):
             nn.BatchNorm2d(num_features=2048),
             #nn.AdaptiveAvgPool2d(output_size=(1,1)),
             nn.Flatten(),
-            #nn.Linear(2048*2*2, latent_dim, bias=False),
-            nn.Linear(2048*2*2, 2048, bias=False),
+            nn.Linear(2048*2*2, latent_dim, bias=False),
+            #nn.Linear(2048*2*2, 2048, bias=False),
             #nn.Tanh(),
         )
 
-        self.fc_mu = nn.Linear(in_features=2048, out_features=latent_dim)
-        self.fc_var = nn.Linear(in_features=2048, out_features=latent_dim)
+        #self.fc_mu = nn.Linear(in_features=2048, out_features=latent_dim)
+        #self.fc_var = nn.Linear(in_features=2048, out_features=latent_dim)
 
         self.upsample_block_0 = nn.Conv2d(in_channels=2048, out_channels=1024, kernel_size=1, stride=1, padding=0, bias=False)
         self.upsample_block_1 = deconv4x4(in_c=1024, out_c=1024)
@@ -157,11 +157,11 @@ class DisentanglementEncoder(nn.Module):
         feat6 = self.downsample_blocks_6(feat5) # feat6: bsx1024x4x4
         feat7 = self.downsample_blocks_7(feat6) # feat7: bsx2048x2x2
 
-        #id_feat = self.id_encoder(feat7) # feat7: bsx2048x2x2 -> id_feat: bsx512
-        latent_feat = self.id_encoder(feat7) # feat7: bsx2048x2x2 -> id_feat: bsx2048
-        mu = self.fc_mu(latent_feat)
-        log_var = self.fc_var(latent_feat)
-        id_feat = self.reparameterize(mu=mu, logvar=log_var)
+        id_feat = self.id_encoder(feat7) # feat7: bsx2048x2x2 -> id_feat: bsx512
+        #latent_feat = self.id_encoder(feat7) # feat7: bsx2048x2x2 -> id_feat: bsx2048
+        #mu = self.fc_mu(latent_feat)
+        #log_var = self.fc_var(latent_feat)
+        #id_feat = self.reparameterize(mu=mu, logvar=log_var)
 
         z_att1 = self.upsample_block_0(feat7) # feat7: bsx2048x2x2 -> z_att1: bsx1024x2x2
         z_att2 = self.upsample_block_1(z_att1, feat6) # z_att2: 2048 x 4 x 4
@@ -174,4 +174,89 @@ class DisentanglementEncoder(nn.Module):
 
         att_feat = [z_att1, z_att2, z_att3, z_att4, z_att5, z_att6, z_att7, z_att8]
 
-        return mu, log_var, id_feat, att_feat
+        #return mu, log_var, id_feat, att_feat
+        return id_feat, att_feat
+
+
+
+class DisentanglementBackbone(nn.Module):
+    def __init__(self, norm=nn.InstanceNorm2d):
+        super(DisentanglementBackbone, self).__init__()
+
+        self.input_layer = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.InstanceNorm2d(num_features=32),
+            nn.PReLU(num_parameters=32)
+        ) # bsx3x256x256 -> bsx32x256x256
+
+        self.downsample_blocks_1 = get_block(unit_module=ResidualBlock, in_channel=32, out_channel=32, num_units=2, norm=norm) # bsx32x256x256 -> bsx32x128x128
+        self.downsample_blocks_2 = get_block(unit_module=ResidualBlock, in_channel=32, out_channel=64, num_units=2, norm=norm) # bsx32x128x128 -> bsx64x64x64
+        self.downsample_blocks_3 = get_block(unit_module=ResidualBlock, in_channel=64, out_channel=128, num_units=2, norm=norm) # bsx64x64x64 -> bsx128x32x32
+        self.downsample_blocks_4 = get_block(unit_module=ResidualBlock, in_channel=128, out_channel=256, num_units=2, norm=norm) # bsx128x32x32 -> bsx256x16x16
+        self.downsample_blocks_5 = get_block(unit_module=ResidualBlock, in_channel=256, out_channel=512, num_units=2, norm=norm) # bsx256x16x16 -> bsx512x8x8
+        self.downsample_blocks_6 = get_block(unit_module=ResidualBlock, in_channel=512, out_channel=1024, num_units=2, norm=norm) # bsx512x8x8 -> bsx1024x4x4
+        self.downsample_blocks_7 = get_block(unit_module=ResidualBlock, in_channel=1024, out_channel=2048, num_units=2, norm=norm) # bsx1024x4x4 -> bsx2048x2x2
+
+    def forward(self, input):
+        feat_input = self.input_layer(input) # input: bsx3x256x256 -> feat_input: bsx32x256x256
+
+        feat1 = self.downsample_blocks_1(feat_input) # feat1: bsx32x128x128
+        feat2 = self.downsample_blocks_2(feat1) # feat2: bsx64x64x64
+        feat3 = self.downsample_blocks_3(feat2) # feat3: bsx128x32x32
+        feat4 = self.downsample_blocks_4(feat3) # feat4: bsx256x16x16
+        feat5 = self.downsample_blocks_5(feat4) # feat5: bsx512x8x8
+        feat6 = self.downsample_blocks_6(feat5) # feat6: bsx1024x4x4
+        feat7 = self.downsample_blocks_7(feat6) # feat7: bsx2048x2x2
+
+        feats = [feat1, feat2, feat3, feat4, feat5, feat6, feat7]
+
+        return feats
+
+
+
+class DisentanglementIdEncoder(nn.Module):
+    def __init__(self, latent_dim):
+        super(DisentanglementIdEncoder, self).__init__()
+
+        self.id_encoder = nn.Sequential(
+            nn.BatchNorm2d(num_features=2048),
+            nn.Flatten(),
+            nn.Linear(2048*2*2, latent_dim, bias=False),
+        )
+
+    def forward(self, input):
+
+        id_feat = self.id_encoder(input[-1]) # feat7: bsx2048x2x2 -> id_feat: bsx512
+
+        return id_feat
+
+
+
+class DisentanglementAttEncoder(nn.Module):
+    def __init__(self):
+        super(DisentanglementAttEncoder, self).__init__()
+
+        self.upsample_block_0 = nn.Conv2d(in_channels=2048, out_channels=1024, kernel_size=1, stride=1, padding=0, bias=False)
+        self.upsample_block_1 = deconv4x4(in_c=1024, out_c=1024)
+        self.upsample_block_2 = deconv4x4(in_c=2048, out_c=512)
+        self.upsample_block_3 = deconv4x4(in_c=1024, out_c=256)
+        self.upsample_block_4 = deconv4x4(in_c=512, out_c=128)
+        self.upsample_block_5 = deconv4x4(in_c=256, out_c=64)
+        self.upsample_block_6 = deconv4x4(in_c=128, out_c=32)
+
+    def forward(self, input):
+
+        feat1, feat2, feat3, feat4, feat5, feat6, feat7 = input
+
+        z_att1 = self.upsample_block_0(feat7) # feat7: bsx2048x2x2 -> z_att1: bsx1024x2x2
+        z_att2 = self.upsample_block_1(z_att1, feat6) # z_att2: 2048 x 4 x 4
+        z_att3 = self.upsample_block_2(z_att2, feat5) # z_att3: 1024 x 8 x 8
+        z_att4 = self.upsample_block_3(z_att3, feat4) # z_att4: 512 x 16 x 16
+        z_att5 = self.upsample_block_4(z_att4, feat3) # z_att5: 256 x 32 x 32
+        z_att6 = self.upsample_block_5(z_att5, feat2) # z_att6: 128 x 64 x 64
+        z_att7 = self.upsample_block_6(z_att6, feat1) # z_att7: 64 x 128 x 128
+        z_att8 = F.interpolate(z_att7, scale_factor=2, mode='bilinear', align_corners=True) # z_att8: 64 x 256 x 256
+
+        att_feat = [z_att1, z_att2, z_att3, z_att4, z_att5, z_att6, z_att7, z_att8]
+
+        return att_feat
