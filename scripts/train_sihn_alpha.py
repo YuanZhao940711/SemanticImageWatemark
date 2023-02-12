@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 from torch.utils.tensorboard import SummaryWriter
 
-from options.options import TrainSihnOptions
+from options.options import TrainSihnAlphaOptions
 
 from face_modules.model import Backbone
 from network.MAE import MLAttrEncoder
@@ -61,7 +61,7 @@ class Train:
             #self.idencoder.apply(weights_init)
         #"""
         #print_log("[*]Training Id Encoder from scratch", self.args.logpath)
-        #self.disattencoder.apply(weights_init)
+        #self.idencoder.apply(weights_init)
         
         # Att Encoder
         self.attencoder = MLAttrEncoder().to(self.args.device)
@@ -75,7 +75,7 @@ class Train:
             self.attencoder.apply(weights_init)
         #"""
         #print_log("[*]Training Disentangler AttEncoder from scratch", self.args.logpath)
-        #self.disattencoder.apply(weights_init)
+        #self.attencoder.apply(weights_init)
 
         # AAD Generator
         self.generator= AADGenerator(c_id=512).to(self.args.device)
@@ -172,7 +172,8 @@ class Train:
         ##### Initialize loss functions #####
         self.con_att_loss = loss_functions.AttLoss().to(self.args.device).eval()
         self.con_id_loss = loss_functions.IdLoss(self.args.conidloss_mode).to(self.args.device).eval()
-        self.con_rec_loss = loss_functions.RecConLoss(self.args.conrecloss_mode, self.args.device).eval()
+        self.con_mse_loss = loss_functions.RecConLoss(self.args.conrecloss_mode, self.args.device).eval()
+        self.con_lpips_loss = loss_functions.RecConLoss('lpips', self.args.device).eval()
         self.sec_feat_loss = loss_functions.FeatLoss(self.args.secfeatloss_mode, self.args.device).eval()
         self.sec_mse_loss = loss_functions.RecSecLoss('l2', self.args.device).eval()
         self.sec_lpips_loss = loss_functions.RecSecLoss('lpips', self.args.device).eval()
@@ -351,7 +352,8 @@ class Train:
 
         Con_Att_loss = AverageMeter()
         Con_Id_loss = AverageMeter()
-        Con_Rec_loss = AverageMeter()
+        Con_Mse_loss = AverageMeter()
+        Con_Lpips_loss = AverageMeter()
         Sec_Feat_loss = AverageMeter()
         Sec_Mse_loss = AverageMeter()
         Sec_Lpips_loss = AverageMeter()
@@ -374,22 +376,21 @@ class Train:
             loss_con_att = self.con_att_loss(data_dict['container_att'], data_dict['cover_att'])
             loss_con_id = self.con_id_loss(data_dict['container_id'], data_dict['input_feature'])
             #loss_con_id = 0.5*self.con_id_loss(data_dict['container_id'], data_dict['input_feature']) + 0.5*self.con_id_loss(data_dict['container_id'], data_dict['cover_id'])
-            loss_con_rec = self.con_rec_loss(data_dict['container'], data_dict['cover'])
-            #loss_sec_feat = 0.5*self.sec_feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_input']) + 0.5*self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
+            #id_ratio = 0.5
+            #loss_con_id = id_ratio*self.con_id_loss(data_dict['container_id'], data_dict['input_feature']) + (1-id_ratio)*self.con_id_loss(data_dict['container_id'], data_dict['cover_id'])
+            loss_con_mse = self.con_mse_loss(data_dict['container'], data_dict['cover'])
+            loss_con_lpips = self.con_lpips_loss(data_dict['container'], data_dict['cover'])
             loss_sec_feat = self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
-            #loss_sec_mse = 0.5*self.sec_mse_loss(data_dict['secret_rec'], data_dict['secret_ori']) + 0.5*self.sec_mse_loss(data_dict['secret_output'], data_dict['secret_ori'])
-            #loss_sec_lpips = 0.5*self.sec_lpips_loss(data_dict['secret_rec'], data_dict['secret_ori']) + 0.5*self.sec_lpips_loss(data_dict['secret_output'], data_dict['secret_ori'])
             loss_sec_mse = self.sec_mse_loss(data_dict['secret_output'], data_dict['secret_ori'])
             loss_sec_lpips = self.sec_lpips_loss(data_dict['secret_output'], data_dict['secret_ori'])
 
             """
-            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec \
+            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips \
             + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
             """
-            #Sum_train_losses = self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec + self.args.sec_mse_lambda*loss_sec_mse
-            #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec + self.args.sec_mse_lambda*loss_sec_mse
-            #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
-            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_feat_lambda*loss_sec_feat
+            #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse
+            #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
+            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
 
             self.att_optim.zero_grad()
             self.encoder_optim.zero_grad()
@@ -410,7 +411,8 @@ class Train:
             ##### Log losses and computation time #####
             Con_Att_loss.update(loss_con_att.item(), self.args.train_bs)
             Con_Id_loss.update(loss_con_id.item(), self.args.train_bs)
-            Con_Rec_loss.update(loss_con_rec.item(), self.args.train_bs)
+            Con_Mse_loss.update(loss_con_mse.item(), self.args.train_bs)
+            Con_Lpips_loss.update(loss_con_lpips.item(), self.args.train_bs)
             Sec_Feat_loss.update(loss_sec_feat.item(), self.args.train_bs)
             Sec_Mse_loss.update(loss_sec_mse.item(), self.args.train_bs)
             Sec_Lpips_loss.update(loss_sec_lpips.item(), self.args.train_bs)
@@ -422,7 +424,8 @@ class Train:
             train_data_dict = {
                 'ConAttLoss': Con_Att_loss.avg,
                 'ConIdLoss': Con_Id_loss.avg,
-                'ConRecLoss': Con_Rec_loss.avg,
+                'ConMseLoss': Con_Mse_loss.avg,
+                'ConLpipsLoss': Con_Lpips_loss.avg,
                 'SecFeatLoss': Sec_Feat_loss.avg,
                 'SecMseLoss': Sec_Mse_loss.avg,
                 'SecLpipsLoss': Sec_Lpips_loss.avg,
@@ -431,8 +434,8 @@ class Train:
 
             ##### Board and log losses, and visualize results #####
             if (self.global_train_steps+1) % self.args.board_interval == 0:
-                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConRec_loss: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
-                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Con_Att_loss.val, Con_Id_loss.val, Con_Rec_loss.val, Sec_Feat_loss.val, Sec_Mse_loss.val, Sec_Lpips_loss.val, Train_losses.val, batch_time.val
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Con_Att_loss.val, Con_Id_loss.val, Con_Mse_loss.val, Con_Lpips_loss.val, Sec_Feat_loss.val, Sec_Mse_loss.val, Sec_Lpips_loss.val, Train_losses.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
                 log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
@@ -446,17 +449,11 @@ class Train:
             if train_iter == self.args.max_train_iters-1:
                 break
         
-        train_epoch_log = "Training[{:d}/{:d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConRec_loss: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
-            epoch+1, self.args.max_epoch, Con_Att_loss.avg, Con_Id_loss.avg, Con_Rec_loss.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Train_losses.avg, batch_time.sum
+        train_epoch_log = "Training[{:d}/{:d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch+1, self.args.max_epoch, Con_Att_loss.avg, Con_Id_loss.avg, Con_Mse_loss.avg, Con_Lpips_loss.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Train_losses.avg, batch_time.sum
         )
         print_log(info=train_epoch_log, log_path=self.args.logpath, console=True)
-        
-        """
-        for name, parms in self.fuser.named_parameters():
-            print('-->name:', name, '-->grad_requirs:',parms.requires_grad, ' -->grad_value:',parms.grad)
-        for name, parms in self.separator.named_parameters():
-            print('-->name:', name, '-->grad_requirs:',parms.requires_grad, ' -->grad_value:',parms.grad)
-        """
+
 
     def validation(self, epoch, cover_loader, secret_loader):
         self.attencoder.eval()
@@ -470,10 +467,12 @@ class Train:
 
         Con_Att_loss = AverageMeter()
         Con_Id_loss = AverageMeter()
-        Con_Rec_loss = AverageMeter()
+        Con_Mse_loss = AverageMeter()
+        Con_Lpips_loss = AverageMeter()
         Sec_Feat_loss = AverageMeter()
         Sec_Mse_loss = AverageMeter()
         Sec_Lpips_loss = AverageMeter()
+
         Val_losses = AverageMeter()
 
         start_time = time.time()
@@ -492,26 +491,26 @@ class Train:
             loss_con_att = self.con_att_loss(data_dict['container_att'], data_dict['cover_att'])
             loss_con_id = self.con_id_loss(data_dict['container_id'], data_dict['input_feature'])
             #loss_con_id = 0.5*self.con_id_loss(data_dict['container_id'], data_dict['input_feature']) + 0.5*self.con_id_loss(data_dict['container_id'], data_dict['cover_id'])
-            loss_con_rec = self.con_rec_loss(data_dict['container'], data_dict['cover'])
-            #loss_sec_feat = 0.5*self.sec_feat_loss(data_dict['secret_feature_rec'], data_dict['secret_feature_input']) + 0.5*self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
+            #id_ratio = 0.5
+            #loss_con_id = id_ratio*self.con_id_loss(data_dict['container_id'], data_dict['input_feature']) + (1-id_ratio)*self.con_id_loss(data_dict['container_id'], data_dict['cover_id'])
+            loss_con_mse = self.con_mse_loss(data_dict['container'], data_dict['cover'])
+            loss_con_lpips = self.con_lpips_loss(data_dict['container'], data_dict['cover'])
             loss_sec_feat = self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
-            #loss_sec_mse = 0.5*self.sec_mse_loss(data_dict['secret_rec'], data_dict['secret_ori']) + 0.5*self.sec_mse_loss(data_dict['secret_output'], data_dict['secret_ori'])
-            #loss_sec_lpips = 0.5*self.sec_lpips_loss(data_dict['secret_rec'], data_dict['secret_ori']) + 0.5*self.sec_lpips_loss(data_dict['secret_output'], data_dict['secret_ori'])
             loss_sec_mse = self.sec_mse_loss(data_dict['secret_output'], data_dict['secret_ori'])
             loss_sec_lpips = self.sec_lpips_loss(data_dict['secret_output'], data_dict['secret_ori'])
 
             """
-            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec \
+            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips \
             + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
             """
-            #sum_val_loss = self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec + self.args.sec_mse_lambda*loss_sec_mse
-            #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec + self.args.sec_mse_lambda*loss_sec_mse
-            #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
-            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_rec_lambda*loss_con_rec + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_feat_lambda*loss_sec_feat
+            #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse
+            #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
+            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
 
             Con_Att_loss.update(loss_con_att.item(), self.args.train_bs)
             Con_Id_loss.update(loss_con_id.item(), self.args.train_bs)
-            Con_Rec_loss.update(loss_con_rec.item(), self.args.train_bs)
+            Con_Mse_loss.update(loss_con_mse.item(), self.args.train_bs)
+            Con_Lpips_loss.update(loss_con_lpips.item(), self.args.train_bs)
             Sec_Feat_loss.update(loss_sec_feat.item(), self.args.train_bs)
             Sec_Mse_loss.update(loss_sec_mse.item(), self.args.train_bs)
             Sec_Lpips_loss.update(loss_sec_lpips.item(), self.args.train_bs)
@@ -526,7 +525,8 @@ class Train:
         validate_data_dict = {
             'ConAttLoss': Con_Att_loss.avg,
             'ConIdLoss': Con_Id_loss.avg,
-            'ConRecLoss': Con_Rec_loss.avg,
+            'ConMseLoss': Con_Mse_loss.avg,
+            'ConLpipsLoss': Con_Lpips_loss.avg,
             'SecFeatLoss': Sec_Feat_loss.avg,
             'SecMseLoss': Sec_Mse_loss.avg,
             'SecLpipsLoss': Sec_Lpips_loss.avg,
@@ -534,8 +534,8 @@ class Train:
         }
         log_metrics(writer=self.writer, data_dict=validate_data_dict, step=epoch+1, prefix='validate')
 
-        val_log = "Validation[{:d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConRec_loss: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
-            epoch+1, Con_Att_loss.avg, Con_Id_loss.avg, Con_Rec_loss.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Val_losses.avg, batch_time.avg
+        val_log = "Validation[{:d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch+1, Con_Att_loss.avg, Con_Id_loss.avg, Con_Mse_loss.avg, Con_Lpips_loss.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Val_losses.avg, batch_time.avg
         )
         print_log(info=val_log, log_path=self.args.logpath, console=True)
 
@@ -608,7 +608,7 @@ class Train:
 
 
 def main():
-    args = TrainSihnOptions().parse()
+    args = TrainSihnAlphaOptions().parse()
 
     cur_time = time.strftime('%Y%m%d_H%H%M%S', time.localtime())
     args.output_dir = os.path.join(args.exp_dir, '{}'.format(cur_time))

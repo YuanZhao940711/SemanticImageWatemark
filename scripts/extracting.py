@@ -12,12 +12,12 @@ import torchvision.transforms as transforms
 
 from options.options import ExtractOptions
 
-from network.DisentanglementEncoder import DisentanglementEncoder
+from face_modules.model import Backbone
 from network.Separator import Separator
-from stylegan2.model import Generator
+from network.Decoder import Decoder
 
 from utils.dataset import ImageDataset
-from utils.common import tensor2img, l2_norm
+from utils.common import tensor2img, alignment, l2_norm
 
 
 
@@ -40,19 +40,19 @@ class Extract:
         assert self.args.checkpoint_dir != None, "[*]Please assign the right directory of the pre-trained models"
         print('[*]Loading pre-trained model from {}'.format(self.args.checkpoint_dir))
 
-        # Disentanglement Encoder
-        self.disentangler = DisentanglementEncoder(latent_dim=self.args.latent_dim).to(self.args.device)
-        self.disentangler.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Dis_best.pth'), map_location=self.args.device), strict=True)
+        # Id Encoder
+        self.idencoder = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se').to(self.args.device)
+        self.idencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Id_best.pth'), map_location=self.args.device), strict=True)
         
         # Separator
         self.separator = Separator(latent_dim=self.args.latent_dim).to(self.args.device)
         self.separator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Separator_best.pth'), map_location=self.args.device), strict=True)
 
         # Decoder
-        self.decoder = Generator(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
+        self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
         self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
 
-        self.disentangler.eval()
+        self.idencoder.eval()
         self.separator.eval()
         self.decoder.eval()        
         
@@ -82,17 +82,12 @@ class Extract:
 
             container_batch = container_batch.to(self.args.device)
 
-            container_id, _ = self.disentangler(container_batch)
+            container_id = self.idencoder(alignment(container_batch))
+            container_id_norm = l2_norm(container_id)
 
-            secret_feature_rec = self.separator(container_id)
-            secret_feature_rec = l2_norm(secret_feature_rec)
+            secret_feature_rec = self.separator(container_id_norm)
 
-            secret_rec_batch, _ = self.decoder(
-                styles=[secret_feature_rec],
-                input_is_latent=True,
-                randomize_noise=True,
-                return_latents=False,
-            )
+            secret_rec_batch = self.decoder(latent_z=secret_feature_rec)
 
             for secret_rec in secret_rec_batch:
                 secret_rec = tensor2img(secret_rec)

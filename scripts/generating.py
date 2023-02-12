@@ -12,13 +12,14 @@ import torchvision.transforms as transforms
 
 from options.options import GenerateOptions
 
+from face_modules.model import Backbone
+from network.MAE import MLAttrEncoder
 from network.AAD import AADGenerator
-from network.DisentanglementEncoder import DisentanglementEncoder
 from network.Fuser import Fuser
-from network.Encoder import BackboneEncoderUsingLastLayerIntoW
+from network.Encoder import PspEncoder
 
 from utils.dataset import ImageDataset
-from utils.common import tensor2img
+from utils.common import tensor2img, alignment, l2_norm
 
 
 
@@ -41,9 +42,13 @@ class Generate:
         assert self.args.checkpoint_dir != None, "[*]Please assign the right directory of the pre-trained models"
         print('[*]Loading pre-trained model from {}'.format(self.args.checkpoint_dir))
 
-        # Disentanglement Encoder
-        self.disentangler = DisentanglementEncoder(latent_dim=self.args.latent_dim).to(self.args.device)
-        self.disentangler.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Dis_best.pth'), map_location=self.args.device), strict=True)
+        # Id Encoder
+        self.idencoder = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se').to(self.args.device)
+        self.idencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Id_best.pth'), map_location=self.args.device), strict=True)
+        
+        # Att Encoder
+        self.attencoder = MLAttrEncoder().to(self.args.device)
+        self.attencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Att_best.pth'), map_location=self.args.device), strict=True)
 
         # AAD Generator
         self.generator = AADGenerator(c_id=512).to(self.args.device)
@@ -54,10 +59,11 @@ class Generate:
         self.fuser.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Fuser_best.pth'), map_location=self.args.device), strict=True)
 
         # Encoder
-        self.encoder = BackboneEncoderUsingLastLayerIntoW(num_layers=50, mode='ir_se').to(self.args.device)
+        self.encoder = PspEncoder(num_layers=50, mode='ir_se').to(self.args.device)
         self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
         
-        self.disentangler.eval()
+        self.idencoder.eval()
+        self.attencoder.eval()
         self.generator.eval()
         self.fuser.eval()
         self.encoder.eval()
@@ -77,6 +83,7 @@ class Generate:
         self.cover_dataset = ImageDataset(root=self.args.cover_dir, transforms=cover_transforms)
         self.secret_dataset = ImageDataset(root=self.args.secret_dir, transforms=secret_transforms)
         print("[*]Loaded {} cover images".format(len(self.cover_dataset)))
+        print("[*]Loaded {} secret images".format(len(self.secret_dataset)))
 
         self.cover_loader = DataLoader(
             self.cover_dataset,
@@ -110,12 +117,14 @@ class Generate:
             secret_batch = secret_batch.to(self.args.device)
             secret_batch = secret_batch.repeat(cover_batch.shape[0], 1, 1, 1)
 
-            cover_id, cover_att = self.disentangler(cover_batch)
+            cover_att = self.attencoder(cover_batch)
+            cover_id = self.idencoder(alignment(cover_batch))
+            cover_id_norm = l2_norm(cover_id)
 
             secret_feature_ori = self.encoder(secret_batch)
+            secret_feature_ori_norm = l2_norm(secret_feature_ori)
 
-            input_feature = self.fuser(cover_id, secret_feature_ori)
-            #input_feature = l2_norm(input_feature)
+            input_feature = self.fuser(cover_id=cover_id_norm, secret_feat=secret_feature_ori_norm)
 
             container_batch = self.generator(inputs=(cover_att, input_feature))
 
