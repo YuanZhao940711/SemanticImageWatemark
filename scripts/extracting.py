@@ -86,8 +86,10 @@ class Extract:
             container_id_norm = l2_norm(container_id)
 
             secret_feature_rec = self.separator(container_id_norm)
+            secret_feature_rec_norm = l2_norm(secret_feature_rec)
 
-            secret_rec_batch = self.decoder(latent_z=secret_feature_rec)
+            #secret_rec_batch = self.decoder(latent_z=secret_feature_rec)
+            secret_rec_batch = self.decoder(latent_z=secret_feature_rec_norm)
 
             for secret_rec in secret_rec_batch:
                 secret_rec = tensor2img(secret_rec)

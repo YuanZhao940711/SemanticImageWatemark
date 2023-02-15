@@ -97,8 +97,8 @@ class AADGenerator(nn.Module):
         self.AADResBlk7 = AADResBlock(128, 64, 64, c_id)
         self.AADResBlk8 = AADResBlock(64, 3, 64, c_id)
 
-        #self.apply(weight_init)
-        self.output_function = nn.Tanh() # nn.Sigmoid()
+        self.output_function = nn.Tanh()
+        #self.output_function = nn.Sigmoid()
 
     def forward(self, inputs):
     #def forward(self, z_att, z_id):
@@ -129,5 +129,5 @@ class AADGenerator(nn.Module):
         
         # y: bs x 3 x 256 x 256
         y = self.AADResBlk8(m, z_att[7], z_id)
-        #return torch.tanh(y)
+
         return self.output_function(y)

@@ -41,6 +41,7 @@ class VanillaDecoder(nn.Module):
             nn.InstanceNorm2d(num_features=3, affine=True),
 
             nn.Tanh(),
+            #nn.Sigmoid(),
         )
 
 
@@ -90,6 +91,7 @@ class Decoder(nn.Module):
             nn.InstanceNorm2d(num_features=3, affine=True),
 
             nn.Tanh(),
+            #nn.Sigmoid(),
         )
 
 

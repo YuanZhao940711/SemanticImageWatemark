@@ -45,28 +45,43 @@ class Generate:
         # Id Encoder
         self.idencoder = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se').to(self.args.device)
         self.idencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Id_best.pth'), map_location=self.args.device), strict=True)
+        #self.idencoder.load_state_dict(torch.load(self.args.checkpoint_dir, map_location=self.args.device)['id_state_dict'], strict=True)
         
         # Att Encoder
         self.attencoder = MLAttrEncoder().to(self.args.device)
         self.attencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Att_best.pth'), map_location=self.args.device), strict=True)
+        #self.attencoder.load_state_dict(torch.load(self.args.checkpoint_dir, map_location=self.args.device)['att_state_dict'], strict=True)
 
         # AAD Generator
         self.generator = AADGenerator(c_id=512).to(self.args.device)
         self.generator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Gen_best.pth'), map_location=self.args.device), strict=True)
+        #self.generator.load_state_dict(torch.load(self.args.checkpoint_dir, map_location=self.args.device)['gen_state_dict'], strict=True)
 
         # Fuser
         self.fuser = Fuser(latent_dim=self.args.latent_dim).to(self.args.device)
         self.fuser.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Fuser_best.pth'), map_location=self.args.device), strict=True)
+        #self.fuser.load_state_dict(torch.load(self.args.checkpoint_dir, map_location=self.args.device)['fuser_state_dict'], strict=True)
 
         # Encoder
         self.encoder = PspEncoder(num_layers=50, mode='ir_se').to(self.args.device)
         self.encoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Encoder_best.pth'), map_location=self.args.device), strict=True)
+        #self.encoder.load_state_dict(torch.load(self.args.checkpoint_dir, map_location=self.args.device)['encoder_state_dict'], strict=True)
         
+        #"""
         self.idencoder.eval()
         self.attencoder.eval()
         self.generator.eval()
         self.fuser.eval()
         self.encoder.eval()
+        #"""
+
+        """
+        self.idencoder.train()
+        self.attencoder.train()
+        self.generator.train()
+        self.fuser.train()
+        self.encoder.train()
+        """
 
         ##### Initialize data loaders ##### 
         cover_transforms = transforms.Compose([
@@ -125,8 +140,10 @@ class Generate:
             secret_feature_ori_norm = l2_norm(secret_feature_ori)
 
             input_feature = self.fuser(cover_id=cover_id_norm, secret_feat=secret_feature_ori_norm)
+            input_feature_norm = l2_norm(input_feature)
 
-            container_batch = self.generator(inputs=(cover_att, input_feature))
+            #container_batch = self.generator(inputs=(cover_att, input_feature))
+            container_batch = self.generator(inputs=(cover_att, input_feature_norm))
 
             for i, container in enumerate(container_batch):
                 cover = tensor2img(cover_batch[i])

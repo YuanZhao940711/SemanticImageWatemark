@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+import piq
 from criteria.lpips.lpips import LPIPS
 
 
@@ -121,18 +122,22 @@ class IdLoss(nn.Module):
 class RecConLoss(nn.Module):
     def __init__(self, loss_mode, device):
         super(RecConLoss, self).__init__()
-
         self.mode = loss_mode
         if self.mode == 'l2':
             self.criterion = nn.MSELoss().to(device)
         elif self.mode == 'lpips':
             self.criterion = LPIPS(net_type='alex').to(device).eval()
+        elif self.mode == 'ssim':
+            self.criterion = piq.SSIMLoss(reduction='mean', data_range=1.).to(device).eval()
         else:
-            raise ValueError('Unexpected Loss Mode {}'.format(loss_mode))            
+            raise ValueError('Unexpected Loss Mode {}'.format(loss_mode))
+
     def forward(self, img_input, img_output):
         if self.mode == 'l2':
             rec_loss = 0.5 * self.criterion(img_input, img_output)
         elif self.mode == 'lpips':
+            rec_loss = self.criterion(img_input, img_output)
+        elif self.mode == 'ssim':
             rec_loss = self.criterion(img_input, img_output)
         return rec_loss
 
@@ -146,6 +151,8 @@ class RecSecLoss(nn.Module):
             self.criterion = nn.MSELoss().to(device)
         elif self.mode == 'lpips':
             self.criterion = LPIPS(net_type='alex').to(device).eval()
+        elif self.mode == 'ssim':
+            self.criterion = piq.SSIMLoss(reduction='mean', data_range=1.).to(device).eval()
         else:
             raise ValueError('Unexpected Loss Mode {}'.format(loss_mode))
 
@@ -153,6 +160,8 @@ class RecSecLoss(nn.Module):
         if self.mode == 'l2':
             rec_loss = 0.5 * self.criterion(img_input, img_output)
         elif self.mode == 'lpips':
+            rec_loss = self.criterion(img_input, img_output)
+        elif self.mode == 'ssim':
             rec_loss = self.criterion(img_input, img_output)
         return rec_loss
 
