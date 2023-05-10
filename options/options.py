@@ -388,10 +388,12 @@ class TrainSihnAlphaOptions:
         self.parser.add_argument('--con_mse_lambda', default=1.0, type=float)
         self.parser.add_argument('--con_lpips_lambda', default=1.0, type=float)
         self.parser.add_argument('--con_ssim_lambda', default=1.0, type=float)
+        self.parser.add_argument('--con_psnr_lambda', default=1.0, type=float)
         self.parser.add_argument('--sec_feat_lambda', default=1.0, type=float)
         self.parser.add_argument('--sec_mse_lambda', default=1.0, type=float)
         self.parser.add_argument('--sec_lpips_lambda', default=1.0, type=float)
         self.parser.add_argument('--sec_ssim_lambda', default=1.0, type=float)
+        self.parser.add_argument('--sec_psnr_lambda', default=1.0, type=float)
 
         self.parser.add_argument('--board_interval', default=50, type=int)
         self.parser.add_argument('--image_interval', default=1000, type=int)

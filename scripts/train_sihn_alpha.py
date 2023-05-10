@@ -53,8 +53,8 @@ class Train:
         self.idencoder = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se').to(self.args.device)
         #"""
         try:
-            self.idencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Id_best.pth'), map_location=self.args.device), strict=True)
-            #self.idencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'model_ir_se50.pth'), map_location=self.args.device), strict=True)
+            #self.idencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Id_best.pth'), map_location=self.args.device), strict=True)
+            self.idencoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'model_ir_se50.pth'), map_location=self.args.device), strict=True)
             print_log("[*]Successfully loaded Id Encoder's pre-trained model", self.args.logpath)
         except:
             raise ValueError("[*]Unable to load Id Encoder's pre-trained model")
@@ -163,12 +163,14 @@ class Train:
         #self.fuser_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.fuser_optim, gamma=0.8, last_epoch=-1, verbose=True)
         #self.separator_scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.separator_optim, gamma=0.8, last_epoch=-1, verbose=True)
 
-        #self.dis_scheduler = optim.lr_scheduler.StepLR(optimizer=self.dis_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1,verbose=True)
-        #self.gen_scheduler = optim.lr_scheduler.StepLR(optimizer=self.gen_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1,verbose=True)
-        #self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1,verbose=True)
-        #self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1, verbose=True)
-        #self.fuser_scheduler = optim.lr_scheduler.StepLR(optimizer=self.fuser_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1,verbose=True)
-        #self.separator_scheduler = optim.lr_scheduler.StepLR(optimizer=self.separator_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1, verbose=True)
+        """
+        self.att_scheduler = optim.lr_scheduler.StepLR(optimizer=self.att_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1,verbose=True)
+        self.gen_scheduler = optim.lr_scheduler.StepLR(optimizer=self.gen_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1,verbose=True)
+        self.encoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.encoder_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1,verbose=True)
+        self.decoder_scheduler = optim.lr_scheduler.StepLR(optimizer=self.decoder_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1, verbose=True)
+        self.fuser_scheduler = optim.lr_scheduler.StepLR(optimizer=self.fuser_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1,verbose=True)
+        self.separator_scheduler = optim.lr_scheduler.StepLR(optimizer=self.separator_optim, step_size=self.args.step_size, gamma=0.8, last_epoch=-1, verbose=True)
+        """
 
         ##### Initialize loss functions #####
         self.con_att_loss = loss_functions.AttLoss().to(self.args.device).eval()
@@ -329,14 +331,18 @@ class Train:
         Con_Mse_loss = AverageMeter()
         Con_Lpips_loss = AverageMeter()
         Con_SSIM_loss = AverageMeter()
+        Con_PSNR_loss = AverageMeter()
 
         Sec_Feat_loss = AverageMeter()
         Sec_Mse_loss = AverageMeter()
         Sec_Lpips_loss = AverageMeter()
         Sec_SSIM_loss = AverageMeter()
+        Sec_PSNR_loss = AverageMeter()
 
         Train_losses = AverageMeter()
 
+        Con_SSIM_index = AverageMeter()
+        Sec_SSIM_index = AverageMeter()
         Con_PSNR_index = AverageMeter()
         Sec_PSNR_index = AverageMeter()
 
@@ -362,12 +368,14 @@ class Train:
             loss_con_lpips = self.con_lpips_loss(data_dict['container'], data_dict['cover'])
             loss_con_ssim = self.con_ssim_loss((data_dict['container']+1)/2, (data_dict['cover']+1)/2)
             #loss_con_ssim = self.con_ssim_loss(data_dict['container'], data_dict['cover'])
+            loss_con_psnr = (torch.tensor(data=60, dtype=torch.float, device=self.args.device) - piq.psnr(x=(data_dict['container']+1)/2, y=(data_dict['cover']+1)/2, data_range=1., reduction='mean')) / torch.tensor(data=60, dtype=torch.float, device=self.args.device)
             
             loss_sec_feat = self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
             loss_sec_mse = self.sec_mse_loss(data_dict['secret_output'], data_dict['secret_ori'])
             loss_sec_lpips = self.sec_lpips_loss(data_dict['secret_output'], data_dict['secret_ori'])
             loss_sec_ssim = self.sec_ssim_loss((data_dict['secret_output']+1)/2, (data_dict['secret_ori']+1)/2)
             #loss_sec_ssim = self.sec_ssim_loss(data_dict['secret_output'], data_dict['secret_ori'])
+            loss_sec_psnr = (torch.tensor(data=60, dtype=torch.float, device=self.args.device) - piq.psnr(x=(data_dict['secret_output']+1)/2, y=(data_dict['secret_ori']+1)/2, data_range=1., reduction='mean')) / torch.tensor(data=60, dtype=torch.float, device=self.args.device)
 
             """
             Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips \
@@ -375,8 +383,17 @@ class Train:
             """
             #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse
             #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
-            #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
-            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.con_ssim_lambda*loss_con_ssim + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips + self.args.sec_ssim_lambda*loss_sec_ssim
+            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
+            #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.con_ssim_lambda*loss_con_ssim + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips + self.args.sec_ssim_lambda*loss_sec_ssim
+            
+            """
+            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.con_ssim_lambda*loss_con_ssim + self.args.con_psnr_lambda*loss_con_psnr \
+                + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips + self.args.sec_ssim_lambda*loss_sec_ssim + self.args.sec_psnr_lambda*loss_sec_psnr
+            """
+
+
+            index_con_ssim = piq.ssim(x=(data_dict['container']+1)/2, y=(data_dict['cover']+1)/2, data_range=1., reduction='mean')
+            index_sec_ssim = piq.ssim(x=(data_dict['secret_output']+1)/2, y=(data_dict['secret_ori']+1)/2, data_range=1., reduction='mean')
 
             index_con_psnr = piq.psnr(x=(data_dict['container']+1)/2, y=(data_dict['cover']+1)/2, data_range=1., reduction='mean')
             index_sec_psnr = piq.psnr(x=(data_dict['secret_output']+1)/2, y=(data_dict['secret_ori']+1)/2, data_range=1., reduction='mean')
@@ -406,14 +423,18 @@ class Train:
             Con_Mse_loss.update(loss_con_mse.item(), self.args.train_bs)
             Con_Lpips_loss.update(loss_con_lpips.item(), self.args.train_bs)
             Con_SSIM_loss.update(loss_con_ssim.item(), self.args.train_bs)
+            Con_PSNR_loss.update(loss_con_psnr.item(), self.args.train_bs)
 
             Sec_Feat_loss.update(loss_sec_feat.item(), self.args.train_bs)
             Sec_Mse_loss.update(loss_sec_mse.item(), self.args.train_bs)
             Sec_Lpips_loss.update(loss_sec_lpips.item(), self.args.train_bs)
             Sec_SSIM_loss.update(loss_sec_ssim.item(), self.args.train_bs)
+            Sec_PSNR_loss.update(loss_sec_psnr.item(), self.args.train_bs)
 
             Train_losses.update(Sum_train_losses.item(), self.args.train_bs)
 
+            Con_SSIM_index.update(index_con_ssim.item(), self.args.train_bs)
+            Sec_SSIM_index.update(index_sec_ssim.item(), self.args.train_bs)
             Con_PSNR_index.update(index_con_psnr.item(), self.args.train_bs)
             Sec_PSNR_index.update(index_sec_psnr.item(), self.args.train_bs)
 
@@ -426,11 +447,15 @@ class Train:
                 'ConMseLoss': Con_Mse_loss.avg,
                 'ConLpipsLoss': Con_Lpips_loss.avg,
                 'ConSSIMLoss': Con_SSIM_loss.avg,
+                'ConPSNRLoss': Con_PSNR_loss.avg,
                 'SecFeatLoss': Sec_Feat_loss.avg,
                 'SecMseLoss': Sec_Mse_loss.avg,
                 'SecLpipsLoss': Sec_Lpips_loss.avg,
                 'SecSSIMLoss': Sec_SSIM_loss.avg,
+                'SecPSNRLoss': Sec_PSNR_loss.avg,
                 'SumTrainLosses': Train_losses.avg,
+                'ConSSIMIndex': Con_SSIM_index.avg,
+                'SecSSIMIndex': Sec_SSIM_index.avg,
                 'ConPSNRIndex': Con_PSNR_index.avg,
                 'SecPSNRIndex': Sec_PSNR_index.avg,
             }
@@ -443,8 +468,13 @@ class Train:
                     epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Con_Att_loss.val, Con_Id_loss.val, Con_Mse_loss.val, Con_Lpips_loss.val, Sec_Feat_loss.val, Sec_Mse_loss.val, Sec_Lpips_loss.val, Train_losses.val, batch_time.val
                 )
                 """
+                """
                 train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} ConSSIM_loss: {:.6f} ConPSNR_index: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} SecSSIM_loss: {:.6f} SecPSNR_index: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
                     epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Con_Att_loss.val, Con_Id_loss.val, Con_Mse_loss.val, Con_Lpips_loss.val, Con_SSIM_loss.val, Con_PSNR_index.val, Sec_Feat_loss.val, Sec_Mse_loss.val, Sec_Lpips_loss.val, Sec_SSIM_loss.val, Sec_PSNR_index.val, Train_losses.val, batch_time.val
+                )
+                """
+                train_log = "[{:d}/{:d}][Iteration: {:05d}][Steps: {:05d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} ConSSIM_loss: {:.6f} ConPSNR_loss: {:.6f} ConSSIM_index: {:.6f} ConPSNR_index: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} SecSSIM_loss: {:.6f} SecPSNR_loss: {:.6f} SecSSIM_index: {:.6f} SecPSNR_index: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+                    epoch+1, self.args.max_epoch, train_iter+1, self.global_train_steps+1, Con_Att_loss.val, Con_Id_loss.val, Con_Mse_loss.val, Con_Lpips_loss.val, Con_SSIM_loss.val, Con_PSNR_loss.val, Con_SSIM_index.val, Con_PSNR_index.val, Sec_Feat_loss.val, Sec_Mse_loss.val, Sec_Lpips_loss.val, Sec_SSIM_loss.val, Sec_PSNR_loss.val, Sec_SSIM_index.val, Sec_PSNR_index.val, Train_losses.val, batch_time.val
                 )
                 print_log(info=train_log, log_path=self.args.logpath, console=True)
                 log_metrics(writer=self.writer, data_dict=train_data_dict, step=self.global_train_steps+1, prefix='train')
@@ -463,8 +493,13 @@ class Train:
             epoch+1, self.args.max_epoch, Con_Att_loss.avg, Con_Id_loss.avg, Con_Mse_loss.avg, Con_Lpips_loss.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Train_losses.avg, batch_time.sum
         )
         """
+        """
         train_epoch_log = "Training[{:d}/{:d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} ConSSIM_loss: {:.6f} ConPSNR_index: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} SecSSIM_loss: {:.6f} SecPSNR_index: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
             epoch+1, self.args.max_epoch, Con_Att_loss.avg, Con_Id_loss.avg, Con_Mse_loss.avg, Con_Lpips_loss.avg, Con_SSIM_loss.avg, Con_PSNR_index.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Sec_SSIM_loss.avg, Sec_PSNR_index.avg, Train_losses.avg, batch_time.sum
+        )
+        """
+        train_epoch_log = "Training[{:d}/{:d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} ConSSIM_loss: {:.6f} ConPSNR_loss: {:.6f} ConSSIM_index: {:.6f} ConPSNR_index: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} SecSSIM_loss: {:.6f} SecPSNR_loss: {:.6f} SecSSIM_index: {:.6f} SecPSNR_index: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch+1, self.args.max_epoch, Con_Att_loss.avg, Con_Id_loss.avg, Con_Mse_loss.avg, Con_Lpips_loss.avg, Con_SSIM_loss.avg, Con_PSNR_loss.avg, Con_SSIM_index.avg, Con_PSNR_index.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Sec_SSIM_loss.avg, Sec_PSNR_loss.avg, Sec_SSIM_index.avg, Sec_PSNR_index.avg, Train_losses.avg, batch_time.sum
         )
         print_log(info=train_epoch_log, log_path=self.args.logpath, console=True)
 
@@ -485,14 +520,18 @@ class Train:
         Con_Mse_loss = AverageMeter()
         Con_Lpips_loss = AverageMeter()
         Con_SSIM_loss = AverageMeter()
+        Con_PSNR_loss = AverageMeter()
 
         Sec_Feat_loss = AverageMeter()
         Sec_Mse_loss = AverageMeter()
         Sec_Lpips_loss = AverageMeter()
         Sec_SSIM_loss = AverageMeter()
+        Sec_PSNR_loss = AverageMeter()
 
         Val_losses = AverageMeter()
 
+        Con_SSIM_index = AverageMeter()
+        Sec_SSIM_index = AverageMeter()
         Con_PSNR_index = AverageMeter()
         Sec_PSNR_index = AverageMeter()
 
@@ -517,12 +556,14 @@ class Train:
             loss_con_lpips = self.con_lpips_loss(data_dict['container'], data_dict['cover'])
             loss_con_ssim = self.con_ssim_loss((data_dict['container']+1)/2, (data_dict['cover']+1)/2)
             #loss_con_ssim = self.con_ssim_loss(data_dict['container'], data_dict['cover'])
+            loss_con_psnr = (torch.tensor(data=60, dtype=torch.float, device=self.args.device) - piq.psnr(x=(data_dict['container']+1)/2, y=(data_dict['cover']+1)/2, data_range=1., reduction='mean')) / torch.tensor(data=60, dtype=torch.float, device=self.args.device)
             
             loss_sec_feat = self.sec_feat_loss(data_dict['secret_feature_output'], data_dict['secret_feature_input'])
             loss_sec_mse = self.sec_mse_loss(data_dict['secret_output'], data_dict['secret_ori'])
             loss_sec_lpips = self.sec_lpips_loss(data_dict['secret_output'], data_dict['secret_ori'])
             loss_sec_ssim = self.sec_ssim_loss((data_dict['secret_output']+1)/2, (data_dict['secret_ori']+1)/2)
             #loss_sec_ssim = self.sec_ssim_loss(data_dict['secret_output'], data_dict['secret_ori'])
+            loss_sec_psnr = (torch.tensor(data=60, dtype=torch.float, device=self.args.device) - piq.psnr(x=(data_dict['secret_output']+1)/2, y=(data_dict['secret_ori']+1)/2, data_range=1., reduction='mean')) / torch.tensor(data=60, dtype=torch.float, device=self.args.device)
 
             """
             sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips \
@@ -530,8 +571,17 @@ class Train:
             """
             #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse
             #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
-            #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
-            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.con_ssim_lambda*loss_con_ssim + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips + self.args.sec_ssim_lambda*loss_sec_ssim
+            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
+            #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.con_ssim_lambda*loss_con_ssim + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips + self.args.sec_ssim_lambda*loss_sec_ssim
+            
+            """
+            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.con_ssim_lambda*loss_con_ssim + self.args.con_psnr_lambda*loss_con_psnr \
+                + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips + self.args.sec_ssim_lambda*loss_sec_ssim + self.args.sec_psnr_lambda*loss_sec_psnr
+            """
+
+
+            index_con_ssim = piq.ssim(x=(data_dict['container']+1)/2, y=(data_dict['cover']+1)/2, data_range=1., reduction='mean')
+            index_sec_ssim = piq.ssim(x=(data_dict['secret_output']+1)/2, y=(data_dict['secret_ori']+1)/2, data_range=1., reduction='mean')
 
             index_con_psnr = piq.psnr(x=(data_dict['container']+1)/2, y=(data_dict['cover']+1)/2, data_range=1., reduction='mean')
             index_sec_psnr = piq.psnr(x=(data_dict['secret_output']+1)/2, y=(data_dict['secret_ori']+1)/2, data_range=1., reduction='mean')
@@ -542,15 +592,18 @@ class Train:
             Con_Id_loss.update(loss_con_id.item(), self.args.train_bs)
             Con_Mse_loss.update(loss_con_mse.item(), self.args.train_bs)
             Con_Lpips_loss.update(loss_con_lpips.item(), self.args.train_bs)
-            Con_SSIM_loss.update(loss_con_ssim.item(), self.args.train_bs)
+            Con_PSNR_loss.update(loss_con_psnr.item(), self.args.train_bs)
 
             Sec_Feat_loss.update(loss_sec_feat.item(), self.args.train_bs)
             Sec_Mse_loss.update(loss_sec_mse.item(), self.args.train_bs)
             Sec_Lpips_loss.update(loss_sec_lpips.item(), self.args.train_bs)
             Sec_SSIM_loss.update(loss_sec_ssim.item(), self.args.train_bs)
+            Sec_PSNR_loss.update(loss_sec_psnr.item(), self.args.train_bs)
 
             Val_losses.update(sum_val_loss.item(), self.args.train_bs)
 
+            Con_SSIM_index.update(index_con_ssim.item(), self.args.train_bs)
+            Sec_SSIM_index.update(index_sec_ssim.item(), self.args.train_bs)
             Con_PSNR_index.update(index_con_psnr.item(), self.args.train_bs)
             Sec_PSNR_index.update(index_sec_psnr.item(), self.args.train_bs)
 
@@ -566,11 +619,15 @@ class Train:
             'ConMseLoss': Con_Mse_loss.avg,
             'ConLpipsLoss': Con_Lpips_loss.avg,
             'ConSSIMLoss': Con_SSIM_loss.avg,
+            'ConPSNRLoss': Con_PSNR_loss.avg,
             'SecFeatLoss': Sec_Feat_loss.avg,
             'SecMseLoss': Sec_Mse_loss.avg,
             'SecLpipsLoss': Sec_Lpips_loss.avg,
             'SecSSIMLoss': Sec_SSIM_loss.avg,
+            'SecPSNRLoss': Sec_PSNR_loss.avg,
             'SumValidateLosses': Val_losses.avg,
+            'ConSSIMIndex': Con_SSIM_index.avg,
+            'SecSSIMIndex': Sec_SSIM_index.avg,
             'ConPSNRIndex': Con_PSNR_index.avg,
             'SecPSNRIndex': Sec_PSNR_index.avg,
         }
@@ -581,8 +638,13 @@ class Train:
             epoch+1, Con_Att_loss.avg, Con_Id_loss.avg, Con_Mse_loss.avg, Con_Lpips_loss.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Val_losses.avg, batch_time.avg
         )
         """
+        """
         val_log = "Validation[{:d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} ConSSIM_loss: {:.6f} ConPSNR_index: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} SecSSIM_loss: {:.6f} SecPSNR_index: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
             epoch+1, Con_Att_loss.avg, Con_Id_loss.avg, Con_Mse_loss.avg, Con_Lpips_loss.avg, Con_SSIM_loss.avg, Con_PSNR_index.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Sec_SSIM_loss.avg, Sec_PSNR_index.avg, Val_losses.avg, batch_time.sum
+        )
+        """
+        val_log = "Validation[{:d}] ConAtt_loss: {:.6f} ConId_loss: {:.6f} ConMse_loss: {:.6f} ConLpips_loss: {:.6f} ConSSIM_loss: {:.6f} ConPSNR_loss: {:.6f} ConSSIM_index: {:.6f} ConPSNR_index: {:.6f} SecFeat_loss: {:.6f} SecMse_loss: {:.6f} SecLpips_loss: {:.6f} SecSSIM_loss: {:.6f} SecPSNR_loss: {:.6f} SecSSIM_index: {:.6f} SecPSNR_index: {:.6f} Sumlosses={:.6f} BatchTime: {:.4f}".format(
+            epoch+1, Con_Att_loss.avg, Con_Id_loss.avg, Con_Mse_loss.avg, Con_Lpips_loss.avg, Con_SSIM_loss.avg, Con_PSNR_loss.avg, Con_SSIM_index.avg, Con_PSNR_index.avg, Sec_Feat_loss.avg, Sec_Mse_loss.avg, Sec_Lpips_loss.avg, Sec_SSIM_loss.avg, Sec_PSNR_loss.avg, Sec_SSIM_index.avg, Sec_PSNR_index.avg, Val_losses.avg, batch_time.sum
         )
         print_log(info=val_log, log_path=self.args.logpath, console=True)
 
@@ -605,17 +667,19 @@ class Train:
                 self.training(epoch, self.train_cover_loader, self.secret_loader)
             """
             self.training(epoch, self.train_cover_loader, self.secret_loader)
+
+            """
+            self.att_scheduler.step()
+            self.gen_scheduler.step()
+            self.encoder_scheduler.step()                
+            self.decoder_scheduler.step()
+            self.fuser_scheduler.step()
+            self.separator_scheduler.step()
+            """
             
             if (epoch+1) % self.args.validation_interval == 0:
                 with torch.no_grad():
                     validation_loss, data_dict = self.validation(epoch, self.val_cover_loader, self.secret_loader)
-                
-                #self.dis_scheduler.step()
-                #self.gen_scheduler.step()
-                #self.encoder_scheduler.step()                
-                #self.decoder_scheduler.step()
-                #self.fuser_scheduler.step()
-                #self.separator_scheduler.step()
                 
                 stat_dict = {
                     'epoch': epoch + 1,
