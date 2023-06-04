@@ -197,7 +197,7 @@ class Train:
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
         secret_transforms = transforms.Compose([
-            transforms.Resize([self.args.image_size, self.args.image_size]),
+            transforms.Resize([self.args.secret_size, self.args.secret_size]),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
@@ -263,9 +263,9 @@ class Train:
         secret_feature_input = torch.cat((secret_feature_ori_norm, secret_feature_null), dim=0)
         #"""
 
-        #input_feature = cover_id_norm + secret_feature_ori_norm
-        fused_feature = self.fuser(cover_id=cover_id_norm[:cover.shape[0]//2], secret_feat=secret_feature_ori_norm)
-        input_feature = torch.cat((fused_feature, cover_id_norm[cover.shape[0]//2:]), dim=0)
+        input_feature = cover_id_norm + secret_feature_input
+        """fused_feature = self.fuser(cover_id=cover_id_norm[:cover.shape[0]//2], secret_feat=secret_feature_ori_norm)
+        input_feature = torch.cat((fused_feature, cover_id_norm[cover.shape[0]//2:]), dim=0)"""
         input_feature_norm = l2_norm(input_feature)
 
         #container = self.generator(inputs=(cover_att, input_feature))
@@ -289,8 +289,9 @@ class Train:
             return_latents=False,
         )
         """
+        secret_output = self.decoder(latent_z=container_id_norm)
         #secret_output = self.decoder(latent_z=secret_feature_output)
-        secret_output = self.decoder(latent_z=secret_feature_output_norm)
+        #secret_output = self.decoder(latent_z=secret_feature_output_norm)
 
 
         ##### Collect results ##### 
@@ -381,7 +382,8 @@ class Train:
             Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips \
             + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
             """
-            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse
+            Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_mse_lambda*loss_sec_mse
+            #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse
             #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
             #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
             #Sum_train_losses = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.con_ssim_lambda*loss_con_ssim + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips + self.args.sec_ssim_lambda*loss_sec_ssim
@@ -569,7 +571,8 @@ class Train:
             sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips \
             + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
             """
-            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse
+            sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_mse_lambda*loss_sec_mse
+            #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse
             #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
             #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips
             #sum_val_loss = self.args.con_att_lambda*loss_con_att + self.args.con_id_lambda*loss_con_id + self.args.con_mse_lambda*loss_con_mse + self.args.con_lpips_lambda*loss_con_lpips + self.args.con_ssim_lambda*loss_con_ssim + self.args.sec_feat_lambda*loss_sec_feat + self.args.sec_mse_lambda*loss_sec_mse + self.args.sec_lpips_lambda*loss_sec_lpips + self.args.sec_ssim_lambda*loss_sec_ssim

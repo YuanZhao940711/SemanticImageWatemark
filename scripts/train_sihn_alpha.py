@@ -21,7 +21,7 @@ from network.AAD import AADGenerator
 from network.Fuser import Fuser
 from network.Separator import Separator
 from network.Encoder import PspEncoder
-from network.Decoder import Decoder # VanillaDecoder
+from network.Decoder import Decoder_1024 # Decoder, Decoder_512, VanillaDecoder
 #from stylegan2.model import Stylegan2Decoder
 
 import piq
@@ -110,7 +110,9 @@ class Train:
         #default size=1024, style_dim=512, n_mlp=8
         #self.decoder = Stylegan2Decoder(size=self.args.image_size, style_dim=self.args.latent_dim, n_mlp=8).to(self.args.device)
         #self.decoder = VanillaDecoder(latent_dim=self.args.latent_dim).to(self.args.device)
-        self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
+        #self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
+        #self.decoder = Decoder_512(latent_dim=self.args.latent_dim).to(self.args.device)
+        self.decoder = Decoder_1024(latent_dim=self.args.latent_dim).to(self.args.device)
         #"""
         try:
             self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
@@ -197,7 +199,7 @@ class Train:
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
         secret_transforms = transforms.Compose([
-            transforms.Resize([self.args.image_size, self.args.image_size]),
+            transforms.Resize([self.args.secret_size, self.args.secret_size]),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])

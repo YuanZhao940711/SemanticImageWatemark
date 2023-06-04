@@ -65,6 +65,7 @@ class GenerateOptions:
         self.parser.add_argument('--seed', default=0, type=int)
         
         self.parser.add_argument('--image_size', default=256, type=int)
+        self.parser.add_argument('--secret_size', default=256, type=int)
         self.parser.add_argument('--generate_bs', default=8, type=int)
         self.parser.add_argument('--secret_bs', default=8, type=int)
         self.parser.add_argument('--num_workers', default=0, type=int)
@@ -91,6 +92,7 @@ class ExtractOptions:
         self.parser.add_argument('--seed', default=0, type=int)
         
         self.parser.add_argument('--image_size', default=256, type=int)
+        self.parser.add_argument('--secret_size', default=256, type=int)
         self.parser.add_argument('--extract_bs', default=8, type=int)
         self.parser.add_argument('--num_workers', default=0, type=int)
 
@@ -359,6 +361,7 @@ class TrainSihnAlphaOptions:
         self.parser.add_argument('--seed', default=0, type=int)
 
         self.parser.add_argument('--image_size', default=256, type=int)
+        self.parser.add_argument('--secret_size', default=256, type=int)
         self.parser.add_argument('--train_bs', default=8, type=int)
         self.parser.add_argument('--secret_bs', default=8, type=int)
         self.parser.add_argument('--max_epoch', default=15, type=int)

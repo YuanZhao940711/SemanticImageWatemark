@@ -14,7 +14,7 @@ from options.options import ExtractOptions
 
 from face_modules.model import Backbone
 from network.Separator import Separator
-from network.Decoder import Decoder
+from network.Decoder import Decoder_512 #Decoder
 
 from utils.dataset import ImageDataset
 from utils.common import tensor2img, alignment, l2_norm
@@ -49,7 +49,8 @@ class Extract:
         self.separator.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Separator_best.pth'), map_location=self.args.device), strict=True)
 
         # Decoder
-        self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
+        #self.decoder = Decoder(latent_dim=self.args.latent_dim).to(self.args.device)
+        self.decoder = Decoder_512(latent_dim=self.args.latent_dim).to(self.args.device)
         self.decoder.load_state_dict(torch.load(os.path.join(self.args.checkpoint_dir, 'Decoder_best.pth'), map_location=self.args.device), strict=True)
 
         self.idencoder.eval()

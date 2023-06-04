@@ -90,7 +90,7 @@ class Generate:
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
         secret_transforms = transforms.Compose([
-            transforms.Resize([self.args.image_size, self.args.image_size]),
+            transforms.Resize([self.args.secret_size, self.args.secret_size]),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ])
